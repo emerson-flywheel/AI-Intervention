@@ -44,7 +44,12 @@ jobs:
           NAME: ${{ steps.info.outputs.name }}
           DESCRIPTION: ${{ steps.info.outputs.description }}
           URL: ${{ steps.info.outputs.url }}
+        # The helper prints each value as JSON ("…" included); decode it here rather than
+        # pasting it into the script, so no config text is ever run as shell.
         run: |
+          for v in IMAGE VERSION NAME DESCRIPTION URL; do
+            printf -v "$v" '%s' "$(jq -r '. // empty' <<< "${!v:-null}")"
+          done
           {
             echo "image_name=${IMAGE##*/}"
             echo "registry_prefix=${IMAGE%/*}"
