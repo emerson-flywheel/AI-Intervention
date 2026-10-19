@@ -2,7 +2,7 @@
 // a real tmux), the signed-in rule, and the console/ proxy (HTTP and websocket) to ttyd.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { join } from 'node:path';
@@ -138,7 +138,6 @@ describe('page server', () => {
 
   test('api/state: expired login is lapsed; the oauth_token option shows signed in by option, never the token', async () => {
     const file = join(sb.data, 'claude', '.credentials.json');
-    const { rmSync } = await import('node:fs');
     writeFileSync(file, '{"claudeAiOauth":{"accessToken":"fake-x","expiresAt":1000}}');
     let s = JSON.parse((await req(srv.port, '/api/state')).body);
     assert.equal(s.signedIn, false);
@@ -201,7 +200,9 @@ describe('page server', () => {
 
   test('sign-in through the API: link, wrong code, right code; never the token or code back', async () => {
     let s = JSON.parse((await req(srv.port, '/api/state')).body);
-    assert.deepEqual(s, { seat: 'home', signedIn: false, lapsed: false, plan: null, since: null, byOption: false, login: 'none' });
+    const { settings, ...rest } = s;
+    assert.deepEqual(rest, { seat: 'home', signedIn: false, lapsed: false, plan: null, since: null, byOption: false, login: 'none' });
+    assert.equal(settings.provider, 'anthropic');
 
     const start = await post(srv.port, '/api/login/start');
     assert.equal(start.status, 200);
@@ -226,6 +227,32 @@ describe('page server', () => {
 
     const late = await post(srv.port, '/api/login/code', { code: GOOD_CODE });
     assert.deepEqual([late.status, JSON.parse(late.body)], [409, { error: 'not-waiting' }]);
+  });
+
+  test('api/seat/settings: saves name, model and thinking; restarts Claude only when model or thinking changed', async () => {
+    const relaunch = join(sb.run, 'relaunch');
+    const settingsFile = join(sb.data, 'claude', 'settings.json');
+    rmSync(relaunch, { force: true });
+    const plain = await req(srv.port, '/api/seat/settings', { method: 'POST', body: '{}',
+      headers: { 'Content-Type': 'application/json' } });
+    assert.equal(plain.status, 403, 'the page header is needed here too');
+    const bad = await post(srv.port, '/api/seat/settings', { name: '', model: 'gpt-5', thinking: '' });
+    assert.deepEqual([bad.status, JSON.parse(bad.body)], [400, { error: 'bad-model' }]);
+    assert.equal(existsSync(settingsFile), false);
+
+    const ok = await post(srv.port, '/api/seat/settings', { name: 'Home', model: 'sonnet', thinking: 'medium' });
+    assert.deepEqual([ok.status, JSON.parse(ok.body)], [200, { saved: true, relaunched: 'now' }]);
+    assert.ok(existsSync(relaunch), 'Claude in the Console is started again on the new model');
+    rmSync(relaunch);
+    const s = JSON.parse((await req(srv.port, '/api/state')).body).settings;
+    assert.deepEqual([s.name, s.providerLabel, s.model, s.thinking], ['Home', 'Anthropic', 'sonnet', 'medium']);
+    assert.equal(JSON.parse(readFileSync(settingsFile, 'utf8')).model, 'sonnet');
+
+    const rename = await post(srv.port, '/api/seat/settings', { name: 'Garage', model: 'sonnet', thinking: 'medium' });
+    assert.deepEqual([rename.status, JSON.parse(rename.body)], [200, { saved: true, relaunched: 'none' }]);
+    assert.equal(existsSync(relaunch), false, 'a new name alone leaves Claude running');
+    rmSync(settingsFile, { force: true });
+    rmSync(join(sb.data, 'seat.json'), { force: true });
   });
 
   test('cancel closes a waiting sign-in and leaves the stored login alone', async () => {

@@ -1,4 +1,5 @@
-// The add-on's page on the ingress port: Console and Seat tabs, the sign-in API, and a
+// The add-on's page on the ingress port: Console and Settings tabs, the sign-in and seat
+// settings API, and a
 // proxy for console/ (HTTP and websocket) to ttyd on 127.0.0.1:7682. No npm dependencies.
 // It answers only HA's ingress proxy, and every URL it serves or uses is relative.
 import { readFileSync } from 'node:fs';
@@ -6,8 +7,9 @@ import http from 'node:http';
 import net from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { seatName } from './lib.mjs';
+import { relaunchConsole, seatName } from './lib.mjs';
 import { LoginError, cancelLogin, loginWaiting, seatLogin, startLogin, submitCode, withLoginLock } from './seat.mjs';
+import { SettingsError, saveSeatSettings, seatSettings } from './settings.mjs';
 
 const env = process.env;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -68,7 +70,7 @@ function readJson(req, cap = 4096) {
 async function state() {
   const seat = seatName();
   const login = seatLogin();
-  return { seat, ...login, login: (await loginWaiting(seat)) ? 'waiting' : 'none' };
+  return { seat, ...login, login: (await loginWaiting(seat)) ? 'waiting' : 'none', settings: seatSettings() };
 }
 
 async function api(req, res, path) {
@@ -94,8 +96,19 @@ async function api(req, res, path) {
       await withLoginLock(() => cancelLogin(seat));
       return send(res, 200, { ok: true });
     }
+    // A new model or thinking level starts Claude in the Console again (with --continue, so
+    // the conversation stays); a new name alone does not.
+    if (path === '/api/seat/settings') {
+      const body = await readJson(req);
+      const relaunched = await withLoginLock(async () => {
+        const { changed } = saveSeatSettings(body || {});
+        return changed ? relaunchConsole() : 'none';
+      });
+      return send(res, 200, { saved: true, relaunched });
+    }
   } catch (err) {
     if (err instanceof LoginError) return send(res, STATUS[err.code] || 409, { error: err.code });
+    if (err instanceof SettingsError) return send(res, 400, { error: err.code });
     return send(res, 500, { error: 'failed' });
   }
   return send(res, 404, { error: 'not found' });

@@ -1,4 +1,4 @@
-// The add-on page: Console and Seat tabs. All URLs are relative (ingress serves this
+// The add-on page: Console and Settings tabs (Settings holds the seat). All URLs are relative (ingress serves this
 // page under a path prefix). The sign-in link is checked here too, with the same
 // check the server uses, before any tab is sent to it.
 import { checkCode, checkLoginUrl } from './linkcheck.mjs';
@@ -7,6 +7,8 @@ const $ = (id) => document.getElementById(id);
 const views = ['v-signed-in', 'v-signed-out', 'v-code', 'v-done'];
 let link = null;
 let busy = false;
+// Edits not saved yet: a refresh leaves the name, model and thinking as typed.
+let dirty = false;
 
 const MESSAGES = {
   'not-taken': 'claude.ai did not take that code. Copy all of it and paste it again, or press Sign in at claude.ai for a fresh one.',
@@ -16,7 +18,17 @@ const MESSAGES = {
   'bad-link': 'The sign-in link was not one this add-on accepts, so its tab was closed. Nothing was changed.',
   'no-link': 'The sign-in did not start. Try again in a minute.',
   busy: 'Another sign-in step is running. Wait a moment, then try again.',
+  'bad-name': 'A name is up to 40 characters on one line.',
+  'bad-model': 'That model is not one this app offers. Reload the page and pick again.',
+  'bad-thinking': 'That thinking level is not one this app offers. Reload the page and pick again.',
+  'settings-unreadable':
+    "Claude Code's settings file (/data/claude/settings.json) is not valid JSON, so nothing was changed. Fix or remove it, then save again.",
   failed: 'Something went wrong. Try again in a minute.',
+};
+const SAVED = {
+  now: 'Saved. Claude in the Console was started again with these settings; the conversation is kept.',
+  'after-shell': 'Saved. Claude uses them when you leave the shell in the Console.',
+  none: 'Saved.',
 };
 const DONE = {
   now: 'Signed in. Claude in the Console was started again on the new login.',
@@ -25,7 +37,7 @@ const DONE = {
 };
 
 function selectTab(name) {
-  for (const t of ['console', 'seat']) {
+  for (const t of ['console', 'settings']) {
     $(`tab-${t}`).setAttribute('aria-selected', String(t === name));
     $(t).hidden = t !== name;
   }
@@ -33,6 +45,8 @@ function selectTab(name) {
 
 function show(view) {
   for (const v of views) $(v).hidden = v !== view;
+  // The sign-in steps take the seat's space; the settings come back after them.
+  $('v-form').hidden = view === 'v-code' || view === 'v-done';
   $('link-box').hidden = true;
   $('link-box').value = '';
 }
@@ -63,14 +77,51 @@ async function post(path, body = {}) {
   }
 }
 
+function options(select, list, pick) {
+  select.replaceChildren(
+    ...list.map((o) => {
+      const el = document.createElement('option');
+      el.value = o.id;
+      el.textContent = o.label;
+      el.selected = o.id === pick;
+      return el;
+    }),
+  );
+}
+
+// The seat's row: "Seat", its name, then signed in / signed out on the same line.
+function seatHead(s) {
+  const set = s.settings || {};
+  $('seat-name').textContent = set.name || s.seat || '';
+  $('seat-chip').textContent = s.signedIn ? 'Signed in' : 'Signed out';
+  $('seat-chip').classList.toggle('ok', s.signedIn);
+  let meta = '';
+  if (s.signedIn && s.byOption) meta = 'by the oauth_token option';
+  else if (s.signedIn) {
+    const plan = s.plan ? `${s.plan[0].toUpperCase()}${s.plan.slice(1)} plan` : '';
+    const when = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+    const since = s.since ? `since ${new Date(s.since).toLocaleString(undefined, when)}` : '';
+    meta = [plan, since].filter(Boolean).join(' · ');
+  }
+  $('seat-meta').textContent = meta;
+  $('provider').textContent = set.providerLabel || '';
+  $('program').textContent = set.program || '';
+  if (!dirty) {
+    $('name').value = set.name || '';
+    options($('model'), set.models || [], set.model || '');
+    options($('thinking'), set.thinkingLevels || [], set.thinking || '');
+  }
+  $('again').hidden = !s.signedIn || Boolean(s.byOption);
+  $('start').hidden = s.signedIn;
+  $('save-note').textContent = s.signedIn
+    ? 'Save restarts Claude in the Console on a new model or thinking level; the conversation is kept.'
+    : 'Saved now, used from the first start after you sign in.';
+}
+
 function render(s) {
   chip(s.signedIn);
+  seatHead(s);
   if (s.signedIn) {
-    $('status').textContent = s.byOption ? 'Signed in (by the oauth_token option)' : 'Signed in';
-    $('plan').textContent = s.plan || '';
-    $('plan').hidden = $('plan-dt').hidden = !s.plan;
-    $('since').textContent = s.since ? new Date(s.since).toLocaleString() : '';
-    $('since').hidden = $('since-dt').hidden = !s.since;
     $('by-file').hidden = Boolean(s.byOption);
     $('by-option').hidden = !s.byOption;
     show('v-signed-in');
@@ -88,6 +139,7 @@ async function refresh() {
     const s = await r.json();
     if (!$('v-code').hidden || !$('v-done').hidden) {
       chip(s.signedIn);
+      seatHead(s);
       return;
     }
     render(s);
@@ -149,6 +201,26 @@ async function submit() {
   error(r.error);
 }
 
+async function save() {
+  if (busy) return;
+  busy = true;
+  error(null);
+  $('saved').hidden = true;
+  $('save').disabled = true;
+  const r = await post('api/seat/settings', {
+    name: $('name').value,
+    model: $('model').value,
+    thinking: $('thinking').value,
+  });
+  $('save').disabled = false;
+  busy = false;
+  if (!r.saved) return error(r.error);
+  dirty = false;
+  $('saved').textContent = SAVED[r.relaunched] || SAVED.none;
+  $('saved').hidden = false;
+  await refresh();
+}
+
 async function cancel() {
   await post('api/login/cancel');
   link = null;
@@ -158,10 +230,20 @@ async function cancel() {
 }
 
 $('tab-console').addEventListener('click', () => selectTab('console'));
-$('tab-seat').addEventListener('click', () => {
-  selectTab('seat');
+$('tab-settings').addEventListener('click', () => {
+  selectTab('settings');
   refresh();
 });
+for (const id of ['name', 'model', 'thinking']) {
+  $(id).addEventListener('input', () => {
+    dirty = true;
+    $('saved').hidden = true;
+  });
+}
+$('name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') save();
+});
+$('save').addEventListener('click', save);
 $('start').addEventListener('click', startSignIn);
 $('again').addEventListener('click', startSignIn);
 $('fresh').addEventListener('click', startSignIn);

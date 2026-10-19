@@ -44,16 +44,36 @@
   main { flex: 1 1 auto; display: flex; min-height: 0; }
   #console { flex: 1 1 auto; display: flex; }
   #console iframe { flex: 1 1 auto; border: 0; width: 100%; height: 100%; background: #000; }
-  #seat { flex: 1 1 auto; overflow-y: auto; padding: 16px; }
+  #settings { flex: 1 1 auto; overflow-y: auto; padding: 16px; }
   [hidden] { display: none !important; }
   .card {
     max-width: 560px; margin: 0 auto; background: var(--card); border: 1px solid var(--line);
     border-radius: 12px; padding: 16px;
   }
-  h1 { font-size: 18px; font-weight: 500; margin: 0 0 12px; }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 16px; }
+  h1 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
+  .hint { color: var(--muted); margin: 0 0 12px; font-size: 13px; }
+  .seat { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .seat-head { display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; margin: 0 0 12px; }
+  .seat-head .label { font-size: 16px; font-weight: 500; }
+  .seat-head .name { font-size: 16px; overflow-wrap: anywhere; }
+  .seat-head .state { margin-left: auto; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; justify-content: flex-end; }
+  .seat-head .meta { color: var(--muted); font-size: 13px; }
+  dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; margin: 0 0 12px; align-items: center; }
   dt { color: var(--muted); }
   dd { margin: 0; overflow-wrap: anywhere; }
+  .sm { color: var(--muted); font-size: 13px; }
+  .saved { color: var(--ok); margin: 8px 0 0; }
+  select {
+    width: 100%; max-width: 320px; font: inherit; padding: 8px 10px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px;
+  }
+  dd input { max-width: 320px; padding: 8px 10px; }
+  @media (max-width: 480px) {
+    .seat-head .state { margin-left: 0; justify-content: flex-start; width: 100%; }
+    dl { grid-template-columns: 1fr; gap: 2px; }
+    dd { margin-bottom: 8px; }
+    select, dd input { max-width: none; }
+  }
   .banner { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }
   .note { color: var(--muted); margin: 8px 0 0; }
   .error { color: var(--err); margin: 12px 0 0; }
@@ -82,7 +102,7 @@
 <header>
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-console" aria-controls="console" aria-selected="true">Console</button>
-    <button class="tab" role="tab" id="tab-seat" aria-controls="seat" aria-selected="false">Seat</button>
+    <button class="tab" role="tab" id="tab-settings" aria-controls="settings" aria-selected="false">Settings</button>
   </div>
   <span class="chip" id="chip">…</span>
 </header>
@@ -90,55 +110,71 @@
   <section id="console" role="tabpanel" aria-labelledby="tab-console">
     <iframe src="console/" title="Claude Code console"></iframe>
   </section>
-  <section id="seat" role="tabpanel" aria-labelledby="tab-seat" hidden>
+  <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
     <div class="card">
-      <h1>Seat</h1>
-
-      <div id="v-signed-in" hidden>
-        <dl>
-          <dt>Status</dt><dd id="status">Signed in</dd>
-          <dt id="plan-dt">Plan</dt><dd id="plan"></dd>
-          <dt id="since-dt">Signed in</dt><dd id="since"></dd>
-        </dl>
-        <div id="by-file">
-          <p class="note">Stored in the add-on's own folder (/data/claude)</p>
-          <div class="row"><button class="text" id="again">Sign in again</button></div>
-          <p class="note">Signing in again replaces this login. Use it if Claude says it is logged out.</p>
+      <h1>Seat(s)</h1>
+      <p class="hint">The Claude login this app uses.</p>
+      <div class="seat">
+        <div class="seat-head" id="seat-head">
+          <span class="label">Seat</span><span class="name" id="seat-name"></span>
+          <span class="state"><span class="chip" id="seat-chip"></span><span class="meta" id="seat-meta"></span></span>
         </div>
-        <p class="note" id="by-option" hidden>Set by the add-on's oauth_token option. To use the Seat sign-in instead, clear that option and restart the add-on.</p>
-      </div>
 
-      <div id="v-signed-out" hidden>
-        <p class="banner" id="out-lapsed">The login ran out.</p>
-        <p class="banner" id="out-never" hidden>Not signed in yet.</p>
-        <div class="row"><button class="primary" id="start">Sign in at claude.ai ↗</button></div>
-      </div>
-
-      <div id="v-code" hidden>
-        <ol>
-          <li>Sign in on the tab that just opened.</li>
-          <li>Press <b>Copy Code</b> there.</li>
-          <li>Paste it here.</li>
-        </ol>
-        <label for="code">Code</label>
-        <input id="code" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text">
-        <div class="row">
-          <button class="primary" id="submit">Sign in</button>
-          <button class="secondary" id="cancel">Cancel</button>
+        <div id="v-signed-out" hidden>
+          <p class="banner" id="out-lapsed">The login ran out.</p>
+          <p class="banner" id="out-never" hidden>Not signed in yet.</p>
         </div>
-        <p class="note">No tab opened? <button class="text" id="reopen">Open the sign-in again ↗</button></p>
-        <p class="note">Different Google account in this browser? <button class="text" id="copy">Copy the link</button> and open it in a private window.</p>
-        <input id="link-box" readonly hidden aria-label="Sign-in link" autocomplete="off" spellcheck="false">
-        <p class="note">The sign-in waits 15 minutes, then stops by itself.</p>
-      </div>
 
-      <div id="v-done" hidden>
-        <p class="done" id="done-text"></p>
-        <div class="row"><button class="primary" id="open-console">Open the Console</button></div>
-      </div>
+        <div id="v-form">
+          <dl>
+            <dt><label for="name">Name</label></dt>
+            <dd><input id="name" maxlength="40" autocomplete="off" spellcheck="false" placeholder="For example Home"></dd>
+            <dt>Provider</dt>
+            <dd><span id="provider"></span> <span class="sm" id="program"></span></dd>
+            <dt><label for="model">Model</label></dt>
+            <dd><select id="model"></select></dd>
+            <dt><label for="thinking">Thinking</label></dt>
+            <dd><select id="thinking"></select></dd>
+          </dl>
+          <div class="row">
+            <button class="primary" id="save">Save</button>
+            <button class="text" id="again" hidden>Sign in again</button>
+            <button class="secondary" id="start" hidden>Sign in at claude.ai ↗</button>
+          </div>
+          <p class="saved" id="saved" role="status" hidden></p>
+          <p class="note" id="save-note"></p>
+          <div id="v-signed-in" hidden>
+            <p class="note" id="by-file">Signing in again replaces this login, stored in the add-on's own folder (/data/claude). Use it if Claude says it is logged out.</p>
+            <p class="note" id="by-option" hidden>Set by the add-on's oauth_token option. To sign in here instead, clear that option and restart the add-on.</p>
+          </div>
+        </div>
 
-      <p class="error" id="error" role="alert" hidden></p>
-      <div class="row" id="fresh-row" hidden><button class="primary" id="fresh">Sign in at claude.ai ↗</button></div>
+        <div id="v-code" hidden>
+          <ol>
+            <li>Sign in on the tab that just opened.</li>
+            <li>Press <b>Copy Code</b> there.</li>
+            <li>Paste it here.</li>
+          </ol>
+          <label for="code">Code</label>
+          <input id="code" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text">
+          <div class="row">
+            <button class="primary" id="submit">Sign in</button>
+            <button class="secondary" id="cancel">Cancel</button>
+          </div>
+          <p class="note">No tab opened? <button class="text" id="reopen">Open the sign-in again ↗</button></p>
+          <p class="note">Different Google account in this browser? <button class="text" id="copy">Copy the link</button> and open it in a private window.</p>
+          <input id="link-box" readonly hidden aria-label="Sign-in link" autocomplete="off" spellcheck="false">
+          <p class="note">The sign-in waits 15 minutes, then stops by itself.</p>
+        </div>
+
+        <div id="v-done" hidden>
+          <p class="done" id="done-text"></p>
+          <div class="row"><button class="primary" id="open-console">Open the Console</button></div>
+        </div>
+
+        <p class="error" id="error" role="alert" hidden></p>
+        <div class="row" id="fresh-row" hidden><button class="primary" id="fresh">Sign in at claude.ai ↗</button></div>
+      </div>
     </div>
   </section>
 </main>

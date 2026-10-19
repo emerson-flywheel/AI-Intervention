@@ -62,6 +62,6 @@ while :; do
         continue
     fi
     echo "[claude-code] You are in a shell. Type exit to start Claude again."
-    echo "[claude-code] If logged out: use the Seat tab, or run claude and /login."
+    echo "[claude-code] If logged out: use the Settings tab, or run claude and /login."
     bash -il || true
 done

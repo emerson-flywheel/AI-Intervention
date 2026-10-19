@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 — 2026-10-19
+
+- **The Seat tab is now Settings**, with a **Seat(s)** section. The seat's row reads
+  "Seat", its name, and Signed in (plan, since when) or Signed out, on one line.
+- **Name the seat**: any name, kept in the app's own folder.
+- **Provider** shown: Anthropic (Claude Code), the only one the app runs.
+- **Model and thinking level** shown and changeable from the seat. Save writes them to
+  Claude Code's own settings file (the one `/model` and `/effort` write), keeps every
+  other setting there, and starts Claude in the Console again with the conversation kept.
+
 ## 0.3.0 — 2026-10-18
 
 First version shared as an app repository.

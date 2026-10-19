@@ -6,7 +6,7 @@
 # What runs (all supervised by the loop at the end):
 #   herdr server, session "claude"  the console: one workspace whose pane runs Claude
 #   ttyd on 127.0.0.1:7682          a herdr client for the page's Console tab
-#   node server.mjs on :7681        the page (ingress): Console + Seat tabs, sign-in
+#   node server.mjs on :7681        the page (ingress): Console + Settings tabs, sign-in
 #   sshd on :22 (host 2248)         only when remote_key is set: the remote console
 set -euo pipefail
 
@@ -36,7 +36,7 @@ if [ -n "${OAUTH_TOKEN}" ]; then
 elif [ -f "${CLAUDE_CONFIG_DIR}/.credentials.json" ]; then
     log "Auth: using stored credentials in ${CLAUDE_CONFIG_DIR}."
 else
-    log "Auth: none yet. Open the Seat tab and press Sign in at claude.ai."
+    log "Auth: none yet. Open the Settings tab and press Sign in at claude.ai."
 fi
 
 # --- HA admin reach (SUPERVISOR_TOKEN injected via homeassistant_api/hassio_api) ---

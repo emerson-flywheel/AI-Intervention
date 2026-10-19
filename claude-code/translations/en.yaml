@@ -14,10 +14,10 @@ configuration:
     name: OAuth token (optional)
     description: >-
       A token from `claude setup-token` on another computer. Leave empty and sign in
-      from the Seat tab instead (recommended; it renews itself).
+      from the Settings tab instead (recommended; it renews itself).
   seat_name:
     name: Seat name
-    description: The name a remote console shows for this app's Claude login.
+    description: The short id a remote console shows for this app's Claude login. The name you give the seat in Settings is separate.
   remote_key:
     name: Remote console key (advanced)
     description: >-

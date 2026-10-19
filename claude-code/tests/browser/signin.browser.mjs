@@ -8,7 +8,7 @@
 // Skipped, and said so, when Playwright cannot be loaded.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { join } from 'node:path';
@@ -136,7 +136,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
     const { context, page, frame } = await open();
     assert.equal(await frame.textContent('#chip'), 'sign in needed');
     await shot(page, frame, 'console-1280-light');
-    await frame.click('#tab-seat');
+    await frame.click('#tab-settings');
     await frame.waitForSelector('text=The login ran out.');
     await shot(page, frame, 'seat-lapsed-1280-light');
 
@@ -165,10 +165,10 @@ describe('Seat sign-in in a browser', { skip }, () => {
     assert.equal(await frame.isVisible('#console iframe'), true);
     const consoleFrame = frame.childFrames()[0];
     await consoleFrame.waitForSelector('text=console here');
-    await frame.click('#tab-seat');
+    await frame.click('#tab-settings');
     await frame.waitForSelector('#v-signed-in:not([hidden])');
-    assert.match(await frame.textContent('#v-signed-in'), /Signed in.*Plan.*max/s);
-    assert.match(await frame.textContent('#v-signed-in'), /Stored in the add-on's own folder \(\/data\/claude\)/);
+    assert.match(await frame.textContent('#seat-head'), /Seat.*Signed in.*Max plan · since/s);
+    assert.match(await frame.textContent('#v-signed-in'), /stored in the add-on's own folder \(\/data\/claude\)/);
     await shot(page, frame, 'seat-signed-in-1280-light');
     await context.close();
   });
@@ -177,7 +177,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
     rmSync(join(sb.data, 'claude', '.credentials.json'), { force: true });
     const { context, frame } = await open();
     assert.equal(await frame.textContent('#chip'), 'sign in needed');
-    await frame.click('#tab-seat');
+    await frame.click('#tab-settings');
     await frame.waitForSelector('text=Not signed in yet.');
     assert.equal(await frame.isVisible('text=The login ran out.'), false);
     assert.equal(await frame.isVisible('text=Sign in at claude.ai ↗'), true);
@@ -189,7 +189,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
     const { context, frame } = await open();
     // A page that is not a secure context has no navigator.clipboard at all.
     await frame.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }));
-    await frame.click('#tab-seat');
+    await frame.click('#tab-settings');
     const tab = context.waitForEvent('page');
     await frame.click('text=Sign in at claude.ai ↗');
     await (await tab).close();
@@ -214,7 +214,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
     writeFileSync(creds, '{"claudeAiOauth":{"accessToken":"fake-x","expiresAt":1000}}');
     let { context, frame } = await open();
     assert.equal(await frame.textContent('#chip'), 'sign in needed');
-    await frame.click('#tab-seat');
+    await frame.click('#tab-settings');
     await frame.waitForSelector('text=The login ran out.');
     await context.close();
 
@@ -224,13 +224,12 @@ describe('Seat sign-in in a browser', { skip }, () => {
       let page;
       ({ context, page, frame } = await open({ width: 360 }));
       assert.equal(await frame.textContent('#chip'), 'signed in');
-      await frame.click('#tab-seat');
+      await frame.click('#tab-settings');
       await frame.waitForSelector('#v-signed-in:not([hidden])');
-      const text = await frame.textContent('#v-signed-in');
-      assert.match(text, /Signed in \(by the oauth_token option\)/);
-      assert.match(text, /clear that option and restart the add-on/);
+      assert.match(await frame.textContent('#seat-head'), /Signed in.*by the oauth_token option/s);
+      assert.match(await frame.textContent('#v-signed-in'), /clear that option and restart the add-on/);
       assert.equal(await frame.isVisible('#again'), false, 'no Sign in again while the option is set');
-      assert.equal(await frame.isVisible('#plan'), false);
+      assert.doesNotMatch(await frame.textContent('#seat-meta'), /plan/);
       assert.ok(!(await frame.content()).includes('option-secret'));
       await shot(page, frame, 'seat-by-option-360-light');
       await context.close();
@@ -242,7 +241,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
   test('Open the sign-in again ↗ opens the link again; a wrong code gets the plain message', async () => {
     writeFileSync(join(sb.data, 'claude', '.credentials.json'), '{"claudeAiOauth":{"accessToken":""}}');
     const { context, frame } = await open();
-    await frame.click('#tab-seat');
+    await frame.click('#tab-settings');
     const first = context.waitForEvent('page');
     await frame.click('text=Sign in at claude.ai ↗');
     const tab = await first;
@@ -261,12 +260,68 @@ describe('Seat sign-in in a browser', { skip }, () => {
     await context.close();
   });
 
+  test('Settings: the tab, the seat row, provider, and a saved name, model and thinking level', async () => {
+    const creds = join(sb.data, 'claude', '.credentials.json');
+    const settingsFile = join(sb.data, 'claude', 'settings.json');
+    writeFileSync(creds, '{"claudeAiOauth":{"accessToken":"fake-x","refreshToken":"r","subscriptionType":"pro"}}');
+    writeFileSync(settingsFile, JSON.stringify({ theme: 'dark' }));
+    const { context, page, frame } = await open();
+    assert.equal(await frame.textContent('#tab-settings'), 'Settings');
+    await frame.click('#tab-settings');
+    await frame.waitForSelector('#v-signed-in:not([hidden])');
+    assert.equal(await frame.textContent('#settings h1'), 'Seat(s)');
+    // "Seat", its name and the signed-in text sit on one row.
+    const tops = await frame.evaluate(() =>
+      ['.seat-head .label', '#seat-name', '#seat-chip'].map((q) => Math.round(document.querySelector(q).getBoundingClientRect().top)));
+    assert.ok(Math.max(...tops) - Math.min(...tops) <= 4, `one row: ${tops}`);
+    assert.equal(await frame.textContent('#seat-name'), 'home', 'no name yet: the seat id');
+    assert.match(await frame.textContent('#seat-meta'), /^Pro plan · since /);
+    assert.equal(await frame.textContent('#provider'), 'Anthropic');
+    assert.equal(await frame.textContent('#program'), 'Claude Code');
+    assert.equal(await frame.inputValue('#model'), '');
+    assert.equal(await frame.inputValue('#thinking'), '');
+
+    await frame.fill('#name', 'Kitchen');
+    await frame.selectOption('#model', 'sonnet');
+    await frame.selectOption('#thinking', 'high');
+    await frame.click('#save');
+    await frame.waitForSelector('text=Saved. Claude in the Console was started again with these settings; the conversation is kept.');
+    assert.equal(await frame.textContent('#seat-name'), 'Kitchen');
+    assert.equal(await frame.inputValue('#model'), 'sonnet');
+    assert.equal(await frame.inputValue('#thinking'), 'high');
+    const saved = JSON.parse(readFileSync(settingsFile, 'utf8'));
+    assert.deepEqual([saved.theme, saved.model, saved.effortLevel], ['dark', 'sonnet', 'high']);
+    await shot(page, frame, 'settings-saved-1280-light');
+
+    // An edit not saved yet survives a refresh of the page's state.
+    await frame.fill('#name', 'Not saved');
+    await frame.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await frame.waitForTimeout(300);
+    assert.equal(await frame.inputValue('#name'), 'Not saved');
+    await context.close();
+
+    // Signed out: the same form, with Sign in at claude.ai beside Save.
+    writeFileSync(creds, '{"claudeAiOauth":{"accessToken":""}}');
+    const out = await open({ width: 360 });
+    await out.frame.click('#tab-settings');
+    await out.frame.waitForSelector('#v-signed-out:not([hidden])');
+    assert.equal(await out.frame.textContent('#seat-chip'), 'Signed out');
+    assert.equal(await out.frame.isVisible('#save'), true);
+    assert.equal(await out.frame.isVisible('#start'), true);
+    assert.equal(await out.frame.isVisible('#again'), false);
+    assert.equal(await out.frame.textContent('#seat-name'), 'Kitchen');
+    await shot(out.page, out.frame, 'settings-signed-out-360-light');
+    await out.context.close();
+    rmSync(settingsFile, { force: true });
+    rmSync(join(sb.data, 'seat.json'), { force: true });
+  });
+
   test('a bad link from the server: the blank tab is closed and nothing is opened', async () => {
     addon.child.kill();
     addon = await addonServer(sb, { FAKE_LINK: GOOD_LINK.replace('9d1c250a', '00000000') });
     addonPort = addon.port;
     const { context, frame } = await open();
-    await frame.click('#tab-seat');
+    await frame.click('#tab-settings');
     const tabPromise = context.waitForEvent('page');
     await frame.click('text=Sign in at claude.ai ↗');
     const tab = await tabPromise;
@@ -290,7 +345,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
       landed = true;
       return route.fulfill({ status: 200, contentType: 'text/html', body: CODE_PAGE });
     });
-    await frame.click('#tab-seat');
+    await frame.click('#tab-settings');
     const tabPromise = context.waitForEvent('page');
     await frame.click('text=Sign in at claude.ai ↗');
     const tab = await tabPromise;
@@ -307,7 +362,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
         writeFileSync(join(sb.data, 'claude', '.credentials.json'), '{"claudeAiOauth":{"accessToken":""}}');
         const { context, page, frame } = await open({ width, scheme });
         await shot(page, frame, `console-${tag}`);
-        await frame.click('#tab-seat');
+        await frame.click('#tab-settings');
         await frame.waitForSelector('text=The login ran out.');
         await shot(page, frame, `seat-lapsed-${tag}`);
         const tabPromise = context.waitForEvent('page');
@@ -322,7 +377,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
         await frame.waitForSelector('#v-done:not([hidden])');
         await shot(page, frame, `seat-done-${tag}`);
         await frame.click('text=Open the Console');
-        await frame.click('#tab-seat');
+        await frame.click('#tab-settings');
         await frame.waitForSelector('#v-signed-in:not([hidden])');
         await shot(page, frame, `seat-signed-in-${tag}`);
         await context.close();

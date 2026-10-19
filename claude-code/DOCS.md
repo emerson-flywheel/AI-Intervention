@@ -11,13 +11,13 @@
 You need Home Assistant OS or Supervised (anything with Apps), on a 64-bit Intel/AMD
 (amd64) or ARM (aarch64) box, and a Claude Pro or Max plan.
 
-## Sign in (the Seat tab)
+## Sign in (the Settings tab)
 
-1. Open the **Seat** tab and press **Sign in at claude.ai ↗**. A new tab opens on
-   claude.ai (allow pop-ups for Home Assistant if your browser asks).
+1. Open the **Settings** tab and, in **Seat(s)**, press **Sign in at claude.ai ↗**. A new
+   tab opens on claude.ai (allow pop-ups for Home Assistant if your browser asks).
 2. Sign in there with the account that has your Pro or Max plan, then press
    **Copy Code**.
-3. Back in the Seat tab, paste the code and press **Sign in**.
+3. Back in the Settings tab, paste the code and press **Sign in**.
 
 Claude in the Console then starts again on the new login and carries on the last
 conversation. The login is kept in the app's own folder and stays through restarts and
@@ -29,8 +29,31 @@ Signed in to the wrong Google account in this browser? Press **Copy the link** a
 it in a private window. If your Home Assistant is on plain `http://`, browsers give the
 page no clipboard, so the link is shown in a box, already selected, for you to copy.
 
-The tab says **The login ran out.** when the login has expired and can no longer renew
+The seat says **The login ran out.** when the login has expired and can no longer renew
 itself; sign in again from there.
+
+## The seat (Settings › Seat(s))
+
+The seat is the Claude login this app uses. Its row reads **Seat**, the seat's name, and
+**Signed in** (with the plan and since when) or **Signed out**. Under it:
+
+- **Name**: any name you like, up to 40 characters (for example *Home*). It is kept in
+  the app's own folder. Until you set one, the seat shows its `seat_name` option.
+- **Provider**: **Anthropic** (Claude Code). It is the only one this app runs today.
+- **Model**: *Default* (your plan picks), Opus, Sonnet, Haiku or Fable. A model you chose
+  in the Console with `/model` shows here too.
+- **Thinking**: *Default*, Low, Medium, High or Extra high (Claude Code's effort level).
+  `max` lasts one session only in Claude Code, so it is not offered here.
+
+**Save** writes the model and thinking level into Claude Code's own settings file
+(`/data/claude/settings.json`, the same file `/model` and `/effort` in the Console write)
+and keeps every other setting in it. When the model or thinking level changed, Claude in
+the Console starts again on them and carries on the conversation. A new name alone
+changes nothing in the Console. The model and thinking level can be set before you sign
+in; they apply from the first start after.
+
+One seat for now: the section is ready for more, and for other providers (OpenAI, Grok),
+but each needs its own program and sign-in in the app first.
 
 The sign-in link is checked twice (by the app and again in the page) before any tab is
 sent to it: it must be claude.ai's (or claude.com's) sign-in page for Claude Code, with
@@ -51,8 +74,8 @@ changes; update the app (or sign in from the Console) then.
 |---|---|---|
 | `permission_mode` | `default` | `default` asks before every action (start here). `acceptEdits` applies file edits by itself and still asks before commands. `plan` only reads and proposes. The container runs as root, where Claude Code blocks its fully-unattended modes, so they are not offered. |
 | `start_folder` | empty | The folder Claude starts in, for example a folder of your own notes and a `CLAUDE.md` under `/share`. Empty starts in `/homeassistant`. Your config stays editable either way (`--add-dir /homeassistant`). |
-| `oauth_token` | empty | Optional. A token from `claude setup-token` on another computer, to skip the Seat sign-in. It does not renew itself, so the Seat sign-in is recommended. The Seat tab then shows "signed in by the oauth_token option". |
-| `seat_name` | `claude` | The name a remote console shows for this app's Claude login. |
+| `oauth_token` | empty | Optional. A token from `claude setup-token` on another computer, to skip the sign-in. It does not renew itself, so the sign-in in Settings is recommended. The seat then shows "Signed in by the oauth_token option". |
+| `seat_name` | `claude` | The short id a remote console shows for this app's Claude login. The name you give the seat in Settings is separate. |
 | `remote_key` | empty | Advanced, see below. One `ssh-ed25519` public key line. Empty keeps the port closed. |
 | `remote_allow_from` | empty | Advanced, see below. The address(es) the key may log in from. |
 
