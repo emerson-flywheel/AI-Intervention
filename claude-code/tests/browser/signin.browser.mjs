@@ -85,7 +85,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
   let addonPort;
 
   before(async () => {
-    sb = sandbox({ herdr: consoleHerdr() });
+    sb = sandbox({ herdr: consoleHerdr(), seat: null });
     writeRunFiles(sb, { pane: 'w1:p1', workspace: 'w1', state: 'claude' });
     writeFileSync(join(sb.data, 'claude', '.credentials.json'), '{"claudeAiOauth":{"accessToken":""}}');
     const ttydPort = await freePort();
@@ -219,7 +219,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
     await context.close();
 
     const opts = join(sb.data, 'options.json');
-    writeFileSync(opts, JSON.stringify({ seat_name: 'home', oauth_token: 'fake-option-token-value-secret' }));
+    writeFileSync(opts, JSON.stringify({ oauth_token: 'fake-option-token-value-secret' }));
     try {
       let page;
       ({ context, page, frame } = await open({ width: 360 }));
@@ -234,7 +234,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
       await shot(page, frame, 'seat-by-option-360-light');
       await context.close();
     } finally {
-      writeFileSync(opts, JSON.stringify({ seat_name: 'home' }));
+      writeFileSync(opts, JSON.stringify({}));
     }
   });
 
@@ -278,7 +278,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
       const tops = await frame.evaluate(() =>
         ['.seat-head .label', '#seat-name', '#seat-chip'].map((q) => Math.round(document.querySelector(q).getBoundingClientRect().top)));
       assert.ok(Math.max(...tops) - Math.min(...tops) <= 4, `one row: ${tops}`);
-      assert.equal(await frame.textContent('#seat-name'), 'home', 'no name yet: the seat id');
+      assert.equal(await frame.textContent('#seat-name'), 'claude', 'no name yet: the seat id');
       assert.match(await frame.textContent('#seat-meta'), /^Pro plan · since /);
       // Provider is a list: Anthropic picked; OpenAI and Grok shown but greyed out.
       assert.equal(await frame.inputValue('#provider'), 'anthropic');
@@ -290,18 +290,22 @@ describe('Seat sign-in in a browser', { skip }, () => {
       ]);
       assert.equal(await frame.inputValue('#model'), '');
       assert.equal(await frame.inputValue('#thinking'), '');
+      assert.equal(await frame.inputValue('#mode'), '');
+      assert.deepEqual(await frame.$$eval('#mode option', (os) => os.map((o) => o.value)), ['', 'acceptEdits', 'plan']);
 
       await frame.fill('#name', 'Kitchen');
       await frame.selectOption('#model', 'sonnet');
       await frame.selectOption('#thinking', 'high');
+      await frame.selectOption('#mode', 'acceptEdits');
       await frame.click('#save');
       await frame.waitForSelector('text=Saved. Claude in the Console was started again with these settings; the conversation is kept.');
       // The row takes the new name from the refresh that follows the save.
       await frame.waitForSelector('#seat-name:text-is("Kitchen")');
       assert.equal(await frame.inputValue('#model'), 'sonnet');
       assert.equal(await frame.inputValue('#thinking'), 'high');
+      assert.equal(await frame.inputValue('#mode'), 'acceptEdits');
       const saved = JSON.parse(readFileSync(settingsFile, 'utf8'));
-      assert.deepEqual([saved.theme, saved.model, saved.effortLevel], ['dark', 'sonnet', 'high']);
+      assert.deepEqual([saved.theme, saved.model, saved.effortLevel, saved.permissions?.defaultMode], ['dark', 'sonnet', 'high', 'acceptEdits']);
       await shot(page, frame, 'settings-saved-1280-light');
 
       // An edit not saved yet survives a refresh of the page's state.

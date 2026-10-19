@@ -27,7 +27,7 @@ const readSettings = (sb) => JSON.parse(readFileSync(settingsFile(sb), 'utf8'));
 
 describe('seat settings', () => {
   test('a fresh seat: no name, Anthropic, default model and thinking, the choices offered', async () => {
-    const sb = sandbox();
+    const sb = sandbox({ seat: null });
     const s = await inBox(sb, 'return seatSettings()');
     assert.equal(s.name, '');
     assert.equal(s.provider, 'anthropic');
@@ -42,7 +42,7 @@ describe('seat settings', () => {
   });
 
   test('OpenAI and Grok are in the provider table but not run by this app', async () => {
-    const sb = sandbox();
+    const sb = sandbox({ seat: null });
     const p = await inBox(sb, 'return PROVIDERS');
     assert.deepEqual(Object.keys(p), ['anthropic', 'openai', 'grok']);
     assert.equal(p.anthropic.runs, true);
@@ -54,7 +54,7 @@ describe('seat settings', () => {
   });
 
   test('the Provider list: all three in order, only Anthropic can be picked', async () => {
-    const sb = sandbox();
+    const sb = sandbox({ seat: null });
     const s = await inBox(sb, 'return seatSettings()');
     assert.deepEqual(s.providers, [
       { id: 'anthropic', label: 'Anthropic', program: 'Claude Code', runs: true },
@@ -65,7 +65,7 @@ describe('seat settings', () => {
   });
 
   test('save takes the provider: Anthropic is kept, one not run (or unknown) is refused', async () => {
-    const sb = sandbox();
+    const sb = sandbox({ seat: null });
     const code = async (body) => (await inBox(sb, `try { saveSeatSettings(${body}); return 'saved'; } catch (e) { return e.code; }`));
     assert.equal(await code("{ name: '', provider: 'openai', model: '', thinking: '' }"), 'bad-provider');
     assert.equal(await code("{ name: '', provider: 'grok', model: '', thinking: '' }"), 'bad-provider');
@@ -81,7 +81,7 @@ describe('seat settings', () => {
   });
 
   test('save writes model and effort where Claude Code reads them, and keeps every other setting', async () => {
-    const sb = sandbox();
+    const sb = sandbox({ seat: null });
     writeFileSync(settingsFile(sb), JSON.stringify({ theme: 'dark', permissions: { allow: ['Read'] } }));
     const r = await inBox(sb, "return saveSeatSettings({ name: '  Home  ', model: 'opus', thinking: 'high' })");
     assert.deepEqual(r, { changed: true });
@@ -101,8 +101,38 @@ describe('seat settings', () => {
     sb.cleanup();
   });
 
+  test('permission mode: offered, saved where Claude Code reads it, other permissions kept', async () => {
+    const sb = sandbox({ seat: null });
+    let s = await inBox(sb, 'return seatSettings()');
+    assert.equal(s.permissionMode, '');
+    assert.deepEqual(s.permissionModes.map((m) => m.id), ['', 'acceptEdits', 'plan']);
+    writeFileSync(settingsFile(sb), JSON.stringify({ theme: 'dark', permissions: { allow: ['Read'] } }));
+    const r = await inBox(sb, "return saveSeatSettings({ name: '', model: '', thinking: '', permissionMode: 'acceptEdits' })");
+    assert.deepEqual(r, { changed: true }, 'a new mode restarts Claude');
+    assert.deepEqual(readSettings(sb), { theme: 'dark', permissions: { allow: ['Read'], defaultMode: 'acceptEdits' } });
+    s = await inBox(sb, 'return seatSettings()');
+    assert.equal(s.permissionMode, 'acceptEdits');
+    const same = await inBox(sb, "return saveSeatSettings({ name: 'x', model: '', thinking: '', permissionMode: 'acceptEdits' })");
+    assert.deepEqual(same, { changed: false });
+    await inBox(sb, "return saveSeatSettings({ name: '', model: '', thinking: '', permissionMode: '' })");
+    assert.deepEqual(readSettings(sb), { theme: 'dark', permissions: { allow: ['Read'] } }, 'Default removes only defaultMode');
+    sb.cleanup();
+  });
+
+  test('permission mode: a mode set elsewhere that is not offered shows as Default and is kept', async () => {
+    const sb = sandbox({ seat: null });
+    writeFileSync(settingsFile(sb), JSON.stringify({ permissions: { defaultMode: 'auto' } }));
+    assert.equal((await inBox(sb, 'return seatSettings()')).permissionMode, '');
+    await inBox(sb, "return saveSeatSettings({ name: 'n', model: '', thinking: '', permissionMode: '' })");
+    assert.deepEqual(readSettings(sb), { permissions: { defaultMode: 'auto' } }, 'an unchanged save writes nothing');
+    const code = async (mode) => (await inBox(sb, `try { saveSeatSettings({ name: '', model: '', thinking: '', permissionMode: ${JSON.stringify(mode)} }); return 'saved'; } catch (e) { return e.code; }`));
+    assert.equal(await code('bypassPermissions'), 'bad-mode');
+    assert.equal(await code('auto'), 'bad-mode');
+    sb.cleanup();
+  });
+
   test('back to Default removes the keys it set and nothing else', async () => {
-    const sb = sandbox();
+    const sb = sandbox({ seat: null });
     writeFileSync(settingsFile(sb), JSON.stringify({
       theme: 'dark', model: 'sonnet', effortLevel: 'low',
       modelSettings: { sonnet: { effortLevel: 'low', autoCompactWindow: 100000 } },
@@ -114,7 +144,7 @@ describe('seat settings', () => {
   });
 
   test('the thinking shown is the model\'s own level first, then the general one', async () => {
-    const sb = sandbox();
+    const sb = sandbox({ seat: null });
     writeFileSync(settingsFile(sb), JSON.stringify({ model: 'opus', effortLevel: 'low', modelSettings: { opus: { effortLevel: 'xhigh' } } }));
     assert.equal((await inBox(sb, 'return seatSettings()')).thinking, 'xhigh');
     writeFileSync(settingsFile(sb), JSON.stringify({ model: 'opus', effortLevel: 'low' }));
@@ -123,7 +153,7 @@ describe('seat settings', () => {
   });
 
   test('a model set in the Console that is not in the list is shown and kept, not lost', async () => {
-    const sb = sandbox();
+    const sb = sandbox({ seat: null });
     writeFileSync(settingsFile(sb), JSON.stringify({ model: 'claude-opus-4-1-20250805' }));
     const s = await inBox(sb, 'return seatSettings()');
     assert.equal(s.model, 'claude-opus-4-1-20250805');
@@ -135,7 +165,7 @@ describe('seat settings', () => {
   });
 
   test('refusals: a bad name, model or thinking level, and a settings file that is not JSON', async () => {
-    const sb = sandbox();
+    const sb = sandbox({ seat: null });
     const code = async (body) => (await inBox(sb, `try { saveSeatSettings(${body}); return 'saved'; } catch (e) { return e.code; }`));
     assert.equal(await code("{ name: 'a'.repeat(41), model: '', thinking: '' }"), 'bad-name');
     assert.equal(await code("{ name: 'two\\nlines', model: '', thinking: '' }"), 'bad-name');

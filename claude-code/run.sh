@@ -21,11 +21,9 @@ mkdir -p "${CLAUDE_CONFIG_DIR}"
 
 # --- Read add-on options (no bashio) ---
 OAUTH_TOKEN=""
-PERM_MODE="default"
 START_FOLDER=""
 if [ -f "${OPTIONS}" ]; then
     OAUTH_TOKEN="$(jq -r '.oauth_token // ""' "${OPTIONS}")"
-    PERM_MODE="$(jq -r '.permission_mode // "default"' "${OPTIONS}")"
     START_FOLDER="$(jq -r '.start_folder // ""' "${OPTIONS}")"
 fi
 
@@ -45,24 +43,12 @@ export SUPERVISOR_API="http://supervisor"
 log "HA Core API: ${HA_API} | Supervisor: ${SUPERVISOR_API} (Bearer \$SUPERVISOR_TOKEN)"
 
 # --- Permission posture ---
-# The container runs as root, so Claude Code BLOCKS the fully-unattended modes
-# (dangerouslySkipPermissions / bypassPermissions). Only default/acceptEdits/plan work.
+# Set on the Settings tab, which writes permissions.defaultMode into Claude Code's own
+# settings file, so no --permission-mode here. The container runs as root, so Claude Code
+# BLOCKS the fully-unattended modes (bypassPermissions); the tab offers only
+# default/acceptEdits/plan.
 CLAUDE_ARGS=()
-case "${PERM_MODE}" in
-    acceptEdits|plan)
-        CLAUDE_ARGS+=("--permission-mode" "${PERM_MODE}")
-        log "Permission mode: ${PERM_MODE}."
-        ;;
-    default|"")
-        log "Permission mode: default (prompts before each action)."
-        ;;
-    bypassPermissions|dangerouslySkipPermissions|skip)
-        log "Permission mode '${PERM_MODE}' is blocked for root containers — falling back to 'default'."
-        ;;
-    *)
-        log "Unknown permission_mode '${PERM_MODE}' — falling back to 'default'."
-        ;;
-esac
+log "Permission mode: from the Settings tab (${CLAUDE_CONFIG_DIR}/settings.json)."
 
 # Where Claude starts: the start_folder option when it names a folder (its CLAUDE.md, if
 # any, loads as project memory), with --add-dir /homeassistant so the live config stays

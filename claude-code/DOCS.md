@@ -1,10 +1,12 @@
-# Claude Code
+# AI Intervention
+
+Claude Code, the official one, in your Home Assistant.
 
 ## Install
 
 1. Settings › Apps › Install app › ⋮ › **Repositories**, add this app's repository, and
    close the dialog.
-2. Find **Claude Code** in the list, then **Install** and **Start**. Turn on
+2. Find **AI Intervention** in the list, then **Install** and **Start**. Turn on
    **Show in sidebar**.
 3. Open it from the sidebar.
 
@@ -38,20 +40,26 @@ The seat is the Claude login this app uses. Its row reads **Seat**, the seat's n
 **Signed in** (with the plan and since when) or **Signed out**. Under it:
 
 - **Name**: any name you like, up to 40 characters (for example *Home*). It is kept in
-  the app's own folder. Until you set one, the seat shows its `seat_name` option.
+  the app's own folder. It is also the seat's short id for a remote console, in lower
+  case with spaces as hyphens (*Home Office* is `home-office`). Until you set one, the
+  seat is called `claude`.
 - **Provider**: a list with **Anthropic** (Claude Code) picked. OpenAI and Grok are in
   the list but greyed out ("coming later"): Anthropic is the only one this app runs today.
 - **Model**: *Default* (your plan picks), Opus, Sonnet, Haiku or Fable. A model you chose
   in the Console with `/model` shows here too.
 - **Thinking**: *Default*, Low, Medium, High or Extra high (Claude Code's effort level).
   `max` lasts one session only in Claude Code, so it is not offered here.
+- **Permission mode**: *Default* asks before every action (start here). *Accept edits*
+  applies file edits by itself and still asks before commands. *Plan* only reads and
+  proposes. The app runs as root, where Claude Code blocks its fully-unattended modes, so
+  they are not offered.
 
-**Save** writes the model and thinking level into Claude Code's own settings file
-(`/data/claude/settings.json`, the same file `/model` and `/effort` in the Console write)
-and keeps every other setting in it. When the model or thinking level changed, Claude in
-the Console starts again on them and carries on the conversation. A new name alone
-changes nothing in the Console. The model and thinking level can be set before you sign
-in; they apply from the first start after.
+**Save** writes the model, thinking level and permission mode into Claude Code's own
+settings file (`/data/claude/settings.json`, the same file `/model`, `/effort` and
+`/permissions` in the Console write) and keeps every other setting in it. When any of the
+three changed, Claude in the Console starts again on them and carries on the
+conversation. A new name alone changes nothing in the Console. They can be set before
+you sign in; they apply from the first start after.
 
 One seat for now: the section is ready for more, and for other providers (OpenAI, Grok),
 but each needs its own program and sign-in in the app first.
@@ -73,10 +81,8 @@ changes; update the app (or sign in from the Console) then.
 
 | Option | Default | What it does |
 |---|---|---|
-| `permission_mode` | `default` | `default` asks before every action (start here). `acceptEdits` applies file edits by itself and still asks before commands. `plan` only reads and proposes. The container runs as root, where Claude Code blocks its fully-unattended modes, so they are not offered. |
 | `start_folder` | empty | The folder Claude starts in, for example a folder of your own notes and a `CLAUDE.md` under `/share`. Empty starts in `/homeassistant`. Your config stays editable either way (`--add-dir /homeassistant`). |
 | `oauth_token` | empty | Optional. A token from `claude setup-token` on another computer, to skip the sign-in. It does not renew itself, so the sign-in in Settings is recommended. The seat then shows "Signed in by the oauth_token option". |
-| `seat_name` | `claude` | The short id a remote console shows for this app's Claude login. The name you give the seat in Settings is separate. |
 | `remote_key` | empty | Advanced, see below. One `ssh-ed25519` public key line. Empty keeps the port closed. |
 | `remote_allow_from` | empty | Advanced, see below. The address(es) the key may log in from. |
 

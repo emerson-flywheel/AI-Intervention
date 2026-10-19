@@ -145,7 +145,7 @@ describe('page server', () => {
     assert.equal(s.byOption, false);
     const opts = join(sb.data, 'options.json');
     const before = readFileSync(opts, 'utf8');
-    writeFileSync(opts, JSON.stringify({ seat_name: 'home', oauth_token: 'fake-option-token-value-secret' }));
+    writeFileSync(opts, JSON.stringify({ oauth_token: 'fake-option-token-value-secret' }));
     const raw = (await req(srv.port, '/api/state')).body;
     s = JSON.parse(raw);
     assert.equal(s.signedIn, true);

@@ -10,13 +10,15 @@ export const HERE = dirname(fileURLToPath(import.meta.url));
 export const AGENT_DIR = join(HERE, '..', 'rootfs', 'opt', 'addon-agent');
 export const FAKES = join(HERE, 'fakes');
 
-export function sandbox({ options = {}, herdr = null } = {}) {
+// seat: the name on the Settings tab (kept in seat.json); null leaves no seat file.
+export function sandbox({ options = {}, herdr = null, seat = 'home' } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'cc-'));
   const data = join(root, 'data');
   const run = join(root, 'run');
   const tmux = join(root, 'tm');
   for (const d of [data, run, tmux, join(data, 'claude')]) mkdirSync(d, { recursive: true });
-  writeFileSync(join(data, 'options.json'), JSON.stringify({ seat_name: 'home', ...options }));
+  writeFileSync(join(data, 'options.json'), JSON.stringify(options));
+  if (seat !== null) writeFileSync(join(data, 'seat.json'), JSON.stringify({ name: seat, provider: 'anthropic' }));
   const state = join(root, 'herdr.json');
   writeFileSync(state, JSON.stringify(herdr ?? { workspaces: [], panes: {} }));
   const env = {

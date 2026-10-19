@@ -83,7 +83,7 @@ RUN sed -i 's/\r$//' /run.sh /opt/addon-agent/*.sh \
 CMD [ "/run.sh" ]
 
 LABEL \
-    org.opencontainers.image.title="Home Assistant App: Claude Code" \
+    org.opencontainers.image.title="Home Assistant App: AI Intervention" \
     org.opencontainers.image.description="Claude Code in the Home Assistant sidebar: a console that stays open, and sign-in from the browser." \
     org.opencontainers.image.source="https://github.com/emerson-flywheel/AI-Intervention" \
     org.opencontainers.image.licenses="MIT"

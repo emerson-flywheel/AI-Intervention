@@ -218,7 +218,7 @@ describe('seats', () => {
   const creds = (sb, body) => writeFileSync(join(sb.data, 'claude', '.credentials.json'), body);
 
   test('seats: signed out, lapsed (file with an empty token), signed in; the token is never shown', async () => {
-    const sb = box({ options: { seat_name: 'home' } });
+    const sb = box();
     const seats = async () => JSON.parse((await agent(sb, 'seats')).stdout);
     let s = await seats();
     assert.deepEqual(Object.keys(s), ['v', 'at', 'seats', 'use']);
@@ -272,17 +272,17 @@ describe('seats', () => {
     }
   });
 
-  test('seat_name comes from the options', async () => {
-    const sb = box({ options: { seat_name: 'home-1' } });
+  test('the seat id comes from the name on the Settings tab', async () => {
+    const sb = box({ seat: 'Home 1' });
     assert.equal(JSON.parse((await agent(sb, 'seats')).stdout).use, 'home-1');
     assert.deepEqual(JSON.parse((await agent(sb, 'seat-use home-1')).stdout), { ok: true, seat: 'home-1' });
     await refused(sb, 'seat-use home', 'bad name', 2);
   });
 
-  test('with no seat_name (or a bad one) the seat is called claude', async () => {
-    for (const seat_name of [undefined, 'Not A Name']) {
-      const sb = box({ options: { seat_name } });
-      assert.equal(JSON.parse((await agent(sb, 'seats')).stdout).use, 'claude', JSON.stringify(seat_name));
+  test('with no name (or one with nothing usable) the seat is called claude; the old option is ignored', async () => {
+    for (const seat of [null, '', '!!!', 'é']) {
+      const sb = box({ seat, options: { seat_name: 'old-option' } });
+      assert.equal(JSON.parse((await agent(sb, 'seats')).stdout).use, 'claude', JSON.stringify(seat));
     }
   });
 

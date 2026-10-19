@@ -69,6 +69,26 @@ const claude = {
     { id: 'high', label: 'High' },
     { id: 'xhigh', label: 'Extra high' },
   ],
+  // permissions.defaultMode. The app runs as root, so Claude Code refuses its unattended
+  // modes; a mode set elsewhere that is not offered here shows as Default and is kept.
+  modes: [
+    { id: '', label: 'Default (asks first)' },
+    { id: 'acceptEdits', label: 'Accept edits' },
+    { id: 'plan', label: 'Plan (read only)' },
+  ],
+  readMode(s) {
+    const m = isObject(s.permissions) ? s.permissions.defaultMode : undefined;
+    return this.modes.some((x) => x.id && x.id === m) ? m : '';
+  },
+  writeMode(s, mode) {
+    const out = { ...s };
+    const perms = isObject(out.permissions) ? { ...out.permissions } : {};
+    if (mode) perms.defaultMode = mode;
+    else delete perms.defaultMode;
+    if (Object.keys(perms).length) out.permissions = perms;
+    else delete out.permissions;
+    return out;
+  },
 };
 
 export const PROVIDERS = {
@@ -130,15 +150,18 @@ export function seatSettings() {
     thinking: now.thinking,
     models,
     thinkingLevels: p.settings.thinking.map((t) => ({ ...t })),
+    permissionMode: p.settings.readMode(unreadable ? {} : file.value),
+    permissionModes: p.settings.modes.map((m) => ({ ...m })),
     unreadable,
   };
 }
 
-// Save the name, provider, model and thinking level. changed: the model or thinking level is
-// new, so Claude in the Console must start again to use it. A settings file that is not JSON
-// is left alone (it may hold the user's other settings) and nothing is written. A provider
-// this app does not run is refused; a save without one keeps the seat's.
-export function saveSeatSettings({ name, provider: asked, model, thinking } = {}) {
+// Save the name, provider, model, thinking level and permission mode. changed: the model,
+// thinking level or permission mode is new, so Claude in the Console must start again to use
+// it. A settings file that is not JSON is left alone (it may hold the user's other settings)
+// and nothing is written. A provider this app does not run is refused; a save without one
+// keeps the seat's, and a save without a permission mode keeps the current one.
+export function saveSeatSettings({ name, provider: asked, model, thinking, permissionMode } = {}) {
   const cleanName = checkName(name);
   if (cleanName === null) throw new SettingsError('bad-name');
   if (asked !== undefined && !(Object.hasOwn(PROVIDERS, asked) && PROVIDERS[asked].runs)) {
@@ -153,11 +176,16 @@ export function saveSeatSettings({ name, provider: asked, model, thinking } = {}
   if (typeof thinking !== 'string' || !p.settings.thinking.some((t) => t.id === thinking)) {
     throw new SettingsError('bad-thinking');
   }
-  const changed = model !== now.model || thinking !== now.thinking;
+  const nowMode = p.settings.readMode(file.unreadable || !isObject(file.value) ? {} : file.value);
+  const mode = permissionMode ?? nowMode;
+  if (typeof mode !== 'string' || !p.settings.modes.some((m) => m.id === mode)) throw new SettingsError('bad-mode');
+  const changed = model !== now.model || thinking !== now.thinking || mode !== nowMode;
   if (changed) {
     if (file.unreadable || !isObject(file.value)) throw new SettingsError('settings-unreadable');
     mkdirSync(CLAUDE_DIR, { recursive: true });
-    writeJson(p.settings.file(), p.settings.write(file.value, { model, thinking }));
+    let next = p.settings.write(file.value, { model, thinking });
+    if (mode !== nowMode) next = p.settings.writeMode(next, mode);
+    writeJson(p.settings.file(), next);
   }
   mkdirSync(DATA, { recursive: true });
   writeJson(profileFile(), { name: cleanName, provider });

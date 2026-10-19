@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.3 — 2026-10-19
+
+- **Renamed to AI Intervention** (store, sidebar and page title). It still runs Claude
+  Code; the app's id is unchanged, so an installed copy updates in place.
+- **Permission mode moved to the Settings tab**, next to Model and Thinking. Save writes
+  it into Claude Code's own settings file. Set it again after updating: the old option's
+  value is not carried over.
+- **The seat name option is gone.** The name on the Settings tab is the seat, and its
+  short id for a remote console (*Home Office* is `home-office`; no name is `claude`).
+
 ## 0.3.2 — 2026-10-19
 
 - **Provider is a list**: Anthropic (Claude Code) is picked. OpenAI and Grok are listed

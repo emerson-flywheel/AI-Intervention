@@ -1,4 +1,4 @@
-# Claude Code for Home Assistant
+# AI Intervention for Home Assistant
 
 Claude Code in your Home Assistant sidebar. Ask in plain English ("why didn't the porch
 light come on last night?", "write me an automation that closes the blinds when the AC
@@ -13,7 +13,7 @@ say yes.
   same conversation; after a restart it picks up where it left off.
 - **Settings**: sign in from the browser with a link and a code. The seat shows whether
   you are signed in and on which plan, tells you when the login runs out, and lets you
-  name it and pick Claude's model and thinking level.
+  name it and pick Claude's model, thinking level and permission mode.
 - **Full reach**: Home Assistant's own APIs and your config files, so it can check, edit
   and reload.
 - **Asks first**: it asks before every change unless you choose otherwise.
@@ -22,16 +22,17 @@ say yes.
 
 1. Press the button above, or Settings › Apps › Install app › ⋮ › Repositories and add
    `https://github.com/emerson-flywheel/AI-Intervention`.
-2. Open **Claude Code** in the list, **Install**, **Start**, and turn on
+2. Open **AI Intervention** in the list, **Install**, **Start**, and turn on
    **Show in sidebar**.
 3. Open it, go to **Settings**, press **Sign in at claude.ai**, and paste the code back.
 
-**While this repository is private** (you were invited), Home Assistant cannot read it
-from the link. Instead copy the `claude-code` folder from this repository (Code ›
-Download ZIP) into `/addons/claude-code/` on your Home Assistant (the Samba, SSH or
-Studio Code Server app), then Settings › Apps › Install app › ⋮ › **Check for updates**:
-Claude Code shows in the local section of the list. It still installs the ready-made image, so it
-takes about a minute. To update, copy the folder again.
+**While the ready-made image is private** (you were given access to it), Home Assistant
+needs a GitHub login to download it. Once, before step 2: on GitHub make a key that can
+only download (Settings › Developer settings › Personal access tokens › Tokens (classic),
+scope `read:packages` only, no expiration), then in Home Assistant Settings › Apps ›
+Install app › ⋮ › **Registry credentials** › Add registry: `ghcr.io`, your GitHub
+username, and the key. Home Assistant uses that login for everything it downloads from
+ghcr.io, so if the key is ever deleted, remove the login there too.
 
 ## You need
 
@@ -41,8 +42,8 @@ takes about a minute. To update, copy the folder again.
 ## Be careful
 
 This app can change anything in your Home Assistant. Anyone who can open your Home
-Assistant can use it. Keep it on the `default` permission mode (asks before every
-change) until you trust it.
+Assistant can use it. Keep it on the *Default* permission mode (Settings tab; asks
+before every change) until you trust it.
 
 Full docs: [claude-code/DOCS.md](claude-code/DOCS.md) (also the app's Documentation
 tab). Changes: [claude-code/CHANGELOG.md](claude-code/CHANGELOG.md).

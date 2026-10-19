@@ -27,9 +27,18 @@ export function options() {
   }
 }
 
+// The seat's short id (what a remote console shows) comes from the name given on the
+// Settings tab (seat.json): lower case, spaces and underscores as hyphens, other
+// characters dropped. No name, or nothing usable left: "claude".
 export function seatName() {
-  const s = options().seat_name;
-  return typeof s === 'string' && NAME_RE.test(s) ? s : 'claude';
+  let name = '';
+  try {
+    name = JSON.parse(readFileSync(join(DATA, 'seat.json'), 'utf8'))?.name;
+  } catch {}
+  const id = typeof name === 'string'
+    ? name.trim().toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
+    : '';
+  return NAME_RE.test(id) ? id : 'claude';
 }
 
 export function run(cmd, args, opts = {}) {

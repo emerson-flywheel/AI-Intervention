@@ -7,7 +7,8 @@ const $ = (id) => document.getElementById(id);
 const views = ['v-signed-in', 'v-signed-out', 'v-code', 'v-done'];
 let link = null;
 let busy = false;
-// Edits not saved yet: a refresh leaves the name, provider, model and thinking as typed.
+// Edits not saved yet: a refresh leaves the name, provider, model, thinking and permission
+// mode as typed.
 let dirty = false;
 
 const MESSAGES = {
@@ -22,6 +23,7 @@ const MESSAGES = {
   'bad-provider': 'That provider is not one this app runs yet. Reload the page and pick Anthropic.',
   'bad-model': 'That model is not one this app offers. Reload the page and pick again.',
   'bad-thinking': 'That thinking level is not one this app offers. Reload the page and pick again.',
+  'bad-mode': 'That permission mode is not one this app offers. Reload the page and pick again.',
   'settings-unreadable':
     "Claude Code's settings file (/data/claude/settings.json) is not valid JSON, so nothing was changed. Fix or remove it, then save again.",
   failed: 'Something went wrong. Try again in a minute.',
@@ -117,11 +119,12 @@ function seatHead(s) {
     options($('provider'), providers, set.provider || '');
     options($('model'), set.models || [], set.model || '');
     options($('thinking'), set.thinkingLevels || [], set.thinking || '');
+    options($('mode'), set.permissionModes || [], set.permissionMode || '');
   }
   $('again').hidden = !s.signedIn || Boolean(s.byOption);
   $('start').hidden = s.signedIn;
   $('save-note').textContent = s.signedIn
-    ? 'Save restarts Claude in the Console on a new model or thinking level; the conversation is kept.'
+    ? 'Save restarts Claude in the Console on a new model, thinking level or permission mode; the conversation is kept.'
     : 'Saved now, used from the first start after you sign in.';
 }
 
@@ -219,6 +222,7 @@ async function save() {
     provider: $('provider').value,
     model: $('model').value,
     thinking: $('thinking').value,
+    permissionMode: $('mode').value,
   });
   $('save').disabled = false;
   busy = false;
@@ -242,7 +246,7 @@ $('tab-settings').addEventListener('click', () => {
   selectTab('settings');
   refresh();
 });
-for (const id of ['name', 'provider', 'model', 'thinking']) {
+for (const id of ['name', 'provider', 'model', 'thinking', 'mode']) {
   $(id).addEventListener('input', () => {
     dirty = true;
     $('saved').hidden = true;
