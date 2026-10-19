@@ -265,55 +265,64 @@ describe('Seat sign-in in a browser', { skip }, () => {
     const settingsFile = join(sb.data, 'claude', 'settings.json');
     writeFileSync(creds, '{"claudeAiOauth":{"accessToken":"fake-x","refreshToken":"r","subscriptionType":"pro"}}');
     writeFileSync(settingsFile, JSON.stringify({ theme: 'dark' }));
-    const { context, page, frame } = await open();
-    assert.equal(await frame.textContent('#tab-settings'), 'Settings');
-    await frame.click('#tab-settings');
-    await frame.waitForSelector('#v-signed-in:not([hidden])');
-    assert.equal(await frame.textContent('#settings h1'), 'Seat(s)');
-    // "Seat", its name and the signed-in text sit on one row.
-    const tops = await frame.evaluate(() =>
-      ['.seat-head .label', '#seat-name', '#seat-chip'].map((q) => Math.round(document.querySelector(q).getBoundingClientRect().top)));
-    assert.ok(Math.max(...tops) - Math.min(...tops) <= 4, `one row: ${tops}`);
-    assert.equal(await frame.textContent('#seat-name'), 'home', 'no name yet: the seat id');
-    assert.match(await frame.textContent('#seat-meta'), /^Pro plan · since /);
-    assert.equal(await frame.textContent('#provider'), 'Anthropic');
-    assert.equal(await frame.textContent('#program'), 'Claude Code');
-    assert.equal(await frame.inputValue('#model'), '');
-    assert.equal(await frame.inputValue('#thinking'), '');
+    // The later tests start signed out with no seat file, whatever happens here.
+    const contexts = [];
+    try {
+      const { context, page, frame } = await open();
+      contexts.push(context);
+      assert.equal(await frame.textContent('#tab-settings'), 'Settings');
+      await frame.click('#tab-settings');
+      await frame.waitForSelector('#v-signed-in:not([hidden])');
+      assert.equal(await frame.textContent('#settings h1'), 'Seat(s)');
+      // "Seat", its name and the signed-in text sit on one row.
+      const tops = await frame.evaluate(() =>
+        ['.seat-head .label', '#seat-name', '#seat-chip'].map((q) => Math.round(document.querySelector(q).getBoundingClientRect().top)));
+      assert.ok(Math.max(...tops) - Math.min(...tops) <= 4, `one row: ${tops}`);
+      assert.equal(await frame.textContent('#seat-name'), 'home', 'no name yet: the seat id');
+      assert.match(await frame.textContent('#seat-meta'), /^Pro plan · since /);
+      assert.equal(await frame.textContent('#provider'), 'Anthropic');
+      assert.equal(await frame.textContent('#program'), 'Claude Code');
+      assert.equal(await frame.inputValue('#model'), '');
+      assert.equal(await frame.inputValue('#thinking'), '');
 
-    await frame.fill('#name', 'Kitchen');
-    await frame.selectOption('#model', 'sonnet');
-    await frame.selectOption('#thinking', 'high');
-    await frame.click('#save');
-    await frame.waitForSelector('text=Saved. Claude in the Console was started again with these settings; the conversation is kept.');
-    assert.equal(await frame.textContent('#seat-name'), 'Kitchen');
-    assert.equal(await frame.inputValue('#model'), 'sonnet');
-    assert.equal(await frame.inputValue('#thinking'), 'high');
-    const saved = JSON.parse(readFileSync(settingsFile, 'utf8'));
-    assert.deepEqual([saved.theme, saved.model, saved.effortLevel], ['dark', 'sonnet', 'high']);
-    await shot(page, frame, 'settings-saved-1280-light');
+      await frame.fill('#name', 'Kitchen');
+      await frame.selectOption('#model', 'sonnet');
+      await frame.selectOption('#thinking', 'high');
+      await frame.click('#save');
+      await frame.waitForSelector('text=Saved. Claude in the Console was started again with these settings; the conversation is kept.');
+      // The row takes the new name from the refresh that follows the save.
+      await frame.waitForSelector('#seat-name:text-is("Kitchen")');
+      assert.equal(await frame.inputValue('#model'), 'sonnet');
+      assert.equal(await frame.inputValue('#thinking'), 'high');
+      const saved = JSON.parse(readFileSync(settingsFile, 'utf8'));
+      assert.deepEqual([saved.theme, saved.model, saved.effortLevel], ['dark', 'sonnet', 'high']);
+      await shot(page, frame, 'settings-saved-1280-light');
 
-    // An edit not saved yet survives a refresh of the page's state.
-    await frame.fill('#name', 'Not saved');
-    await frame.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-    await frame.waitForTimeout(300);
-    assert.equal(await frame.inputValue('#name'), 'Not saved');
-    await context.close();
+      // An edit not saved yet survives a refresh of the page's state.
+      await frame.fill('#name', 'Not saved');
+      await frame.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await frame.waitForTimeout(300);
+      assert.equal(await frame.inputValue('#name'), 'Not saved');
+      await context.close();
 
-    // Signed out: the same form, with Sign in at claude.ai beside Save.
-    writeFileSync(creds, '{"claudeAiOauth":{"accessToken":""}}');
-    const out = await open({ width: 360 });
-    await out.frame.click('#tab-settings');
-    await out.frame.waitForSelector('#v-signed-out:not([hidden])');
-    assert.equal(await out.frame.textContent('#seat-chip'), 'Signed out');
-    assert.equal(await out.frame.isVisible('#save'), true);
-    assert.equal(await out.frame.isVisible('#start'), true);
-    assert.equal(await out.frame.isVisible('#again'), false);
-    assert.equal(await out.frame.textContent('#seat-name'), 'Kitchen');
-    await shot(out.page, out.frame, 'settings-signed-out-360-light');
-    await out.context.close();
-    rmSync(settingsFile, { force: true });
-    rmSync(join(sb.data, 'seat.json'), { force: true });
+      // Signed out: the same form, with Sign in at claude.ai beside Save.
+      writeFileSync(creds, '{"claudeAiOauth":{"accessToken":""}}');
+      const out = await open({ width: 360 });
+      contexts.push(out.context);
+      await out.frame.click('#tab-settings');
+      await out.frame.waitForSelector('#v-signed-out:not([hidden])');
+      assert.equal(await out.frame.textContent('#seat-chip'), 'Signed out');
+      assert.equal(await out.frame.isVisible('#save'), true);
+      assert.equal(await out.frame.isVisible('#start'), true);
+      assert.equal(await out.frame.isVisible('#again'), false);
+      assert.equal(await out.frame.textContent('#seat-name'), 'Kitchen');
+      await shot(out.page, out.frame, 'settings-signed-out-360-light');
+    } finally {
+      for (const c of contexts) await c.close().catch(() => {});
+      writeFileSync(creds, '{"claudeAiOauth":{"accessToken":""}}');
+      rmSync(settingsFile, { force: true });
+      rmSync(join(sb.data, 'seat.json'), { force: true });
+    }
   });
 
   test('a bad link from the server: the blank tab is closed and nothing is opened', async () => {
