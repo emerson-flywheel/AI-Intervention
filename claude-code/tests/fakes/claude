@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# A stand-in claude for the tests.
+#  claude auth login --claudeai   prints a real-shaped sign-in link and "Paste code here",
+#     then takes codes: $FAKE_GOOD_CODE writes a token to $CLAUDE_CONFIG_DIR and exits
+#     $FAKE_EXIT (0); anything else prints "Invalid code" and asks again.
+#     FAKE_LINK replaces the link; FAKE_TOKEN="" signs in without writing a token.
+#  claude [args]                  prints its args, then echoes lines until "quit".
+if [ "$1" = auth ]; then
+    link="${FAKE_LINK-https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_challenge=Zm9vYmFyYmF6cXV4cXV1eGNvcmdlZ3JhdWx0Z2FycGx5&code_challenge_method=S256&state=c3RhdGVzdGF0ZXN0YXRlc3RhdGVzdGF0ZQ}"
+    [ -n "${FAKE_LINK_DELAY:-}" ] && sleep "${FAKE_LINK_DELAY}"
+    echo "Opening browser to sign in…"
+    echo "Browser didn't open? Use the url below to sign in:"
+    echo
+    echo "${link}"
+    echo
+    while :; do
+        printf 'Paste code here if prompted > '
+        IFS= read -r code || exit 1
+        if [ "${code}" = "${FAKE_GOOD_CODE:-good-code-0123456789}" ]; then
+            if [ "${FAKE_TOKEN-tok-0123456789abcdef}" != "" ]; then
+                mkdir -p "${CLAUDE_CONFIG_DIR}"
+                printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"r","subscriptionType":"max"}}' \
+                    "${FAKE_TOKEN-tok-0123456789abcdef}" > "${CLAUDE_CONFIG_DIR}/.credentials.json"
+            fi
+            echo "Login successful."
+            exit "${FAKE_EXIT:-0}"
+        fi
+        echo "OAuth error: Invalid code. Please make sure the full code was copied"
+    done
+fi
+echo "fake-claude args: $*"
+echo "fake-claude oauth-env: ${CLAUDE_CODE_OAUTH_TOKEN:+set}"
+while IFS= read -r -p "> " line; do
+    echo "you said: ${line}"
+    [ "${line}" = quit ] && exit 0
+done

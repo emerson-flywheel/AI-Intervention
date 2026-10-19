@@ -1,0 +1,49 @@
+# herdr for the add-on's console: the server and the HA page's client. The remote key's
+# client uses attach.toml instead.
+onboarding = false
+
+[keys]
+prefix = "ctrl+a"
+
+[update]
+version_check = false
+manifest_check = false
+
+[terminal]
+# Every pane starts in this gate: only the console's own pane (ADDON_CONSOLE=1) gets
+# bash; any other pane, such as the workspace herdr makes by itself when the last one
+# closes while a client is attached, gets no shell.
+default_shell = "/opt/addon-agent/pane-shell.sh"
+
+[server]
+headless_cols = 200
+headless_rows = 50
+
+[ui]
+sidebar_start_collapsed = true
+sidebar_collapsed_mode = "hidden"
+mobile_width_threshold = 20
+accent = "#38bdf8"
+pane_scrollbars = true
+status_indicators = "symbols"
+hide_tab_bar_when_single_tab = true
+
+[ui.toast]
+delivery = "off"
+
+[ui.sound]
+enabled = false
+
+[theme]
+name = "terminal"
+
+[theme.custom]
+panel_bg = "reset"
+sidebar_bg = "#131a2e"
+active_row_bg = "#1e3050"
+selection_bg = "#1e3050"
+accent = "#38bdf8"
+blue = "#3b82f6"
+yellow = "#f59e0b"
+red = "#ef4444"
+green = "#10b981"

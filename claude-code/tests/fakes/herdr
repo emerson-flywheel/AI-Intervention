@@ -1,0 +1,68 @@
+#!/usr/bin/env node
+// A stand-in herdr CLI for the tests: state in $FAKE_HERDR_STATE (JSON), every call
+// appended to its "calls". Answers in herdr 0.9.3's shapes: JSON results on stdout, JSON
+// errors on stderr with exit 1, nothing for send-text/send-keys, raw text for pane read.
+import { readFileSync, writeFileSync } from 'node:fs';
+
+const file = process.env.FAKE_HERDR_STATE;
+const st = JSON.parse(readFileSync(file, 'utf8'));
+let args = process.argv.slice(2);
+if (args[0] === '--session') args = args.slice(2);
+st.calls = st.calls || [];
+st.calls.push(args);
+const save = () => writeFileSync(file, JSON.stringify(st));
+const ok = (result) => {
+  save();
+  process.stdout.write(`${JSON.stringify({ id: 'cli', result })}\n`);
+};
+const fail = (code) => {
+  save();
+  process.stderr.write(`${JSON.stringify({ id: 'cli', error: { code, message: code } })}\n`);
+  process.exit(1);
+};
+if (st.down) fail('server_not_running');
+
+const [group, verb, ...rest] = args;
+const pane = (id) => st.panes?.[id] || fail('pane_not_found');
+const k = `${group} ${verb}`;
+if (k === 'workspace list') {
+  ok({ type: 'workspace_list', workspaces: st.workspaces.map((w) => ({ workspace_id: w.id, label: w.label })) });
+} else if (k === 'workspace create') {
+  st.next = (st.next || 0) + 1;
+  const id = `w${st.next}`;
+  st.workspaces.push({ id, label: rest[rest.indexOf('--label') + 1] });
+  st.panes[`${id}:p1`] = { lines: ['$ '], agent_status: null, procs: [{ name: 'bash', pid: 1 }] };
+  ok({ type: 'workspace_created', workspace: { workspace_id: id }, root_pane: { pane_id: `${id}:p1` } });
+} else if (k === 'workspace close') {
+  st.workspaces = st.workspaces.filter((w) => w.id !== rest[0]);
+  ok({ type: 'ok' });
+} else if (k === 'workspace focus') {
+  st.focused = rest[0];
+  ok({ type: 'ok' });
+} else if (k === 'pane get') {
+  pane(rest[0]);
+  ok({ type: 'pane_info', pane: { pane_id: rest[0], scroll: { max_offset_from_bottom: st.panes[rest[0]].history ?? 0 } } });
+} else if (k === 'pane read') {
+  const p = pane(rest[0]);
+  const n = Number(rest[rest.indexOf('--lines') + 1]);
+  save();
+  process.stdout.write(`${p.lines.slice(-n).join('\n')}\n`);
+} else if (k === 'pane send-text') {
+  pane(rest[0]).lines.push(`typed:${rest[1]}`);
+  save();
+} else if (k === 'pane send-keys') {
+  pane(rest[0]).lines.push(`keys:${rest.slice(1).join(' ')}`);
+  save();
+} else if (k === 'pane run') {
+  pane(rest[0]).lines.push(`run:${rest[1]}`);
+  ok({ type: 'ok' });
+} else if (k === 'pane process-info') {
+  const id = rest[rest.indexOf('--pane') + 1];
+  ok({ type: 'pane_process_info', process_info: { pane_id: id, foreground_processes: pane(id).procs } });
+} else if (k === 'agent get') {
+  const p = pane(rest[0]);
+  if (!p.agent_status) fail('agent_not_found');
+  ok({ type: 'agent_info', agent: { agent: 'claude', agent_status: p.agent_status, pane_id: rest[0] } });
+} else {
+  fail('fake_unknown_command');
+}

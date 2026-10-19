@@ -1,0 +1,103 @@
+# herdr for the remote key's client (agent.mjs attach). No shell, pane, tab or workspace
+# may be opened from it: every prefix action is unbound (an empty prefix is not allowed:
+# herdr falls back to ctrl+b), the indexed shortcuts are off and the mouse is not captured,
+# so clicks never reach herdr's buttons and menus. Keybindings are read by the client, so
+# this file governs this client only. The action list is herdr 0.9.3's
+# (`herdr --default-config`); tests/attach-lock.test.mjs checks it is complete.
+onboarding = false
+
+[keys]
+prefix = "ctrl+a"
+clear_pane = ""
+close_pane = ""
+close_tab = ""
+close_workspace = ""
+cycle_pane_next = ""
+cycle_pane_previous = ""
+detach = ""
+edit_scrollback = ""
+focus_agent = ""
+focus_pane_down = ""
+focus_pane_left = ""
+focus_pane_right = ""
+focus_pane_up = ""
+goto = ""
+help = ""
+last_pane = ""
+move_tab_next = ""
+move_tab_previous = ""
+navigate_pane_down = ""
+navigate_pane_left = ""
+navigate_pane_right = ""
+navigate_pane_up = ""
+navigate_workspace_down = ""
+navigate_workspace_up = ""
+new_tab = ""
+new_workspace = ""
+new_worktree = ""
+next_agent = ""
+next_tab = ""
+next_workspace = ""
+open_notification_target = ""
+open_worktree = ""
+previous_agent = ""
+previous_tab = ""
+previous_workspace = ""
+reload_config = ""
+remote_image_paste = ""
+remove_worktree = ""
+rename_pane = ""
+rename_tab = ""
+rename_workspace = ""
+resize_mode = ""
+resize_pane_down = ""
+resize_pane_left = ""
+resize_pane_right = ""
+resize_pane_up = ""
+settings = ""
+split_horizontal = ""
+split_vertical = ""
+switch_tab = ""
+switch_workspace = ""
+toggle_sidebar = ""
+workspace_picker = ""
+zoom = ""
+
+[keys.indexed]
+tabs = ""
+workspaces = ""
+agents = ""
+
+[update]
+version_check = false
+manifest_check = false
+
+[ui]
+mouse_capture = false
+sidebar_start_collapsed = true
+sidebar_collapsed_mode = "hidden"
+mobile_width_threshold = 20
+accent = "#38bdf8"
+pane_scrollbars = true
+status_indicators = "symbols"
+hide_tab_bar_when_single_tab = true
+
+[ui.toast]
+delivery = "off"
+
+[ui.sound]
+enabled = false
+
+[theme]
+name = "terminal"
+
+[theme.custom]
+panel_bg = "reset"
+sidebar_bg = "#131a2e"
+active_row_bg = "#1e3050"
+selection_bg = "#1e3050"
+accent = "#38bdf8"
+blue = "#3b82f6"
+yellow = "#f59e0b"
+red = "#ef4444"
+green = "#10b981"

@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+# Stand-in agent for attach-fuzz.py: swallows every key, ignores EOF and the tty's
+# signals, so only something outside it can end its pane.
+import os, signal, sys, time
+for s in (signal.SIGINT, signal.SIGQUIT, signal.SIGTSTP, signal.SIGHUP):
+    signal.signal(s, signal.SIG_IGN)
+print('╭───────────────────────────╮\n│ ✻ Welcome to Claude Code! │\n╰───────────────────────────╯', flush=True)
+while True:
+    if not os.read(0, 4096):
+        time.sleep(0.05)

@@ -1,0 +1,31 @@
+# sshd for the remote key only (started by run.sh when remote_key is set).
+# Key auth only, root only by the forced command in authorized_keys, no forwarding of any kind.
+Port 22
+HostKey /data/ssh/ssh_host_ed25519_key
+AuthorizedKeysFile /data/ssh/authorized_keys
+AllowUsers root
+PermitRootLogin forced-commands-only
+AuthenticationMethods publickey
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+HostbasedAuthentication no
+PermitEmptyPasswords no
+DisableForwarding yes
+AllowTcpForwarding no
+AllowStreamLocalForwarding no
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+PermitUserEnvironment no
+PermitUserRC no
+StrictModes yes
+PrintMotd no
+PrintLastLog no
+MaxAuthTries 3
+LoginGraceTime 20
+ClientAliveInterval 30
+ClientAliveCountMax 4
+PidFile /run/claude-code/sshd.pid
+LogLevel INFO

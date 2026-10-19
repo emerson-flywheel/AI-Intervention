@@ -1,0 +1,112 @@
+# Claude Code
+
+## Install
+
+1. Settings › Apps › Install app › ⋮ › **Repositories**, add this app's repository, and
+   close the dialog.
+2. Find **Claude Code** in the list, then **Install** and **Start**. Turn on
+   **Show in sidebar**.
+3. Open it from the sidebar.
+
+You need Home Assistant OS or Supervised (anything with Apps), on a 64-bit Intel/AMD
+(amd64) or ARM (aarch64) box, and a Claude Pro or Max plan.
+
+## Sign in (the Seat tab)
+
+1. Open the **Seat** tab and press **Sign in at claude.ai ↗**. A new tab opens on
+   claude.ai (allow pop-ups for Home Assistant if your browser asks).
+2. Sign in there with the account that has your Pro or Max plan, then press
+   **Copy Code**.
+3. Back in the Seat tab, paste the code and press **Sign in**.
+
+Claude in the Console then starts again on the new login and carries on the last
+conversation. The login is kept in the app's own folder and stays through restarts and
+updates. A sign-in that is started and not finished stops by itself after 15 minutes and
+never touches the login you already have. Signing in from the Console (`claude`, then
+`/login`) works too.
+
+Signed in to the wrong Google account in this browser? Press **Copy the link** and open
+it in a private window. If your Home Assistant is on plain `http://`, browsers give the
+page no clipboard, so the link is shown in a box, already selected, for you to copy.
+
+The tab says **The login ran out.** when the login has expired and can no longer renew
+itself; sign in again from there.
+
+The sign-in link is checked twice (by the app and again in the page) before any tab is
+sent to it: it must be claude.ai's (or claude.com's) sign-in page for Claude Code, with
+Claude's own return address and PKCE, and only the scopes Claude Code asks for today. If
+a future Claude Code asks for more, the sign-in stops with a plain message and nothing
+changes; update the app (or sign in from the Console) then.
+
+## The Console
+
+- Claude runs in a [herdr](https://github.com/herdrdev/herdr) console. Leaving the page
+  detaches; coming back attaches to the same running Claude.
+- After an app restart Claude resumes the last conversation (`--continue`).
+- When Claude exits you get a shell; leave it (`exit`) and Claude starts again.
+
+## Options
+
+| Option | Default | What it does |
+|---|---|---|
+| `permission_mode` | `default` | `default` asks before every action (start here). `acceptEdits` applies file edits by itself and still asks before commands. `plan` only reads and proposes. The container runs as root, where Claude Code blocks its fully-unattended modes, so they are not offered. |
+| `start_folder` | empty | The folder Claude starts in, for example a folder of your own notes and a `CLAUDE.md` under `/share`. Empty starts in `/homeassistant`. Your config stays editable either way (`--add-dir /homeassistant`). |
+| `oauth_token` | empty | Optional. A token from `claude setup-token` on another computer, to skip the Seat sign-in. It does not renew itself, so the Seat sign-in is recommended. The Seat tab then shows "signed in by the oauth_token option". |
+| `seat_name` | `claude` | The name a remote console shows for this app's Claude login. |
+| `remote_key` | empty | Advanced, see below. One `ssh-ed25519` public key line. Empty keeps the port closed. |
+| `remote_allow_from` | empty | Advanced, see below. The address(es) the key may log in from. |
+
+## What Claude can reach
+
+- `SUPERVISOR_TOKEN` in its environment, for the Core API
+  (`http://supervisor/core/api/...`) and the Supervisor API (`http://supervisor/...`):
+  `curl -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://supervisor/core/api/states`
+- Read-write: `/homeassistant` (your live config), `/addons` (local apps), `/config`
+  (this app's own folder), `/ssl`, `/share`, `/media`, `/backup`.
+- The `ha` command (`ha core check`, `ha core logs`, ...), `git`, `curl`, `jq`, `node`.
+
+A good first question: "List my unavailable entities and tell me which ones are dead
+hardware."
+
+## Remote console (advanced, off by default)
+
+For driving the console from another machine (for example a dashboard of your own
+Claude consoles). Leave both options empty and the port stays closed.
+
+- Set `remote_key` to one `ssh-ed25519` public key line and `remote_allow_from` to the
+  address or network it logs in from (`192.168.1.20`, `192.168.1.0/24`, or several,
+  comma-separated; names and `/0` are refused). Map the port under Network (2248 by
+  default) and restart. Anything else is refused, the log says why, and the port stays
+  closed.
+- The key is written as the only line of `/data/ssh/authorized_keys`:
+  `from="<your addresses>",restrict,pty,command="node /opt/addon-agent/agent.mjs" <key>`.
+  No forwarding of any kind, keys only, and every login runs the app's agent whatever
+  command was asked for. There is no shell.
+- The host key is made once in `/data/ssh/` and kept; the log prints its fingerprint at
+  start, so the remote side can pin it.
+- The agent answers these commands (one per login, as the ssh command): `snapshot`,
+  `type <console>` (the line on stdin), `interrupt <console>`, `history <console>`,
+  `attach <console>`, `seats`, `seat-login <seat>`, `seat-code <seat>` (the code on
+  stdin), `seat-status <seat>`, `seat-signout <seat>`, `seat-use <seat>`. The console is
+  called `claude`. Answers are one JSON line; a refusal is one line on stderr
+  (`workspace-agent: refused: <words>`) with exit 2 (bad request) or 3 (wrong state).
+- `attach` is a herdr client with every herdr key unbound, so it cannot open a
+  workspace, tab, pane or shell. While it is attached, Claude exiting offers no shell
+  (only Enter to start Claude again).
+
+## Updating
+
+New versions show in Settings › Apps like any app. The login and conversations stay.
+The image is ready-made, so an update takes about a minute.
+
+## Safety and the rules of use
+
+- This uses **your own** Claude plan through the **official** Claude Code, interactively.
+  Keep it supervised; don't turn it into an always-on autonomous service.
+- The page answers only Home Assistant's ingress proxy. The sign-in code and the login's
+  token are never logged, shown or written anywhere but Claude's own login file; only the
+  token's length is read, to tell signed in from signed out.
+- This app has **root-level control of your smart home and its host.** Treat access to
+  your Home Assistant, and any remote key, accordingly.
+
+Not affiliated with Anthropic or Home Assistant.

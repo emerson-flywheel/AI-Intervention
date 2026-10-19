@@ -1,0 +1,332 @@
+// The Seat sign-in in a real browser (Playwright, headless Chromium), with the page served
+// by the real server.mjs and the fake claude, inside an iframe under an ingress-style path
+// prefix as HA serves it. claude.com is routed to a stand-in code page with Copy Code.
+//
+//   PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs \
+//   SCREENSHOT_DIR=/some/dir node --test tests/browser/signin.browser.mjs
+//
+// Skipped, and said so, when Playwright cannot be loaded.
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
+import net from 'node:net';
+import { join } from 'node:path';
+import { after, before, describe, test } from 'node:test';
+import { AGENT_DIR, GOOD_CODE, GOOD_LINK, consoleHerdr, sandbox, writeRunFiles } from '../helpers.mjs';
+
+let chromium = null;
+try {
+  ({ chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright'));
+} catch {}
+const skip = chromium ? false : 'Playwright is not installed (set PLAYWRIGHT_MODULE)';
+const SHOTS = process.env.SCREENSHOT_DIR || null;
+const PREFIX = '/api/hassio_ingress/Tok3n_abc/';
+
+const freePort = () =>
+  new Promise((resolve) => {
+    const s = net.createServer().listen(0, '127.0.0.1', () => {
+      const { port } = s.address();
+      s.close(() => resolve(port));
+    });
+  });
+
+async function addonServer(sb, env) {
+  const port = await freePort();
+  const child = spawn(process.execPath, [join(AGENT_DIR, 'server.mjs')], {
+    env: { ...sb.env, ADDON_PORT: String(port), ADDON_INGRESS_PEER: '127.0.0.1', ...env },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  await new Promise((r) => child.stdout.on('data', (d) => String(d).includes('Page on') && r()));
+  return { port, child };
+}
+
+// "Home Assistant": a page with the add-on in an iframe, and the ingress proxy that
+// strips the prefix and forwards to the add-on (from 127.0.0.1, as the ingress peer).
+function haServer(getAddonPort) {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      return res.end(`<!doctype html><title>Home Assistant</title>
+        <style>body{margin:0}iframe{border:0;width:100vw;height:100vh;display:block}</style>
+        <iframe src="${PREFIX}" allow="clipboard-read; clipboard-write"></iframe>`);
+    }
+    if (!req.url.startsWith(PREFIX)) {
+      res.writeHead(404);
+      return res.end();
+    }
+    const up = http.request({ host: '127.0.0.1', port: getAddonPort(), method: req.method,
+      path: `/${req.url.slice(PREFIX.length)}`, headers: req.headers }, (r) => {
+      res.writeHead(r.statusCode, r.headers);
+      r.pipe(res);
+    });
+    // The tests restart the add-on server; a request caught in that gap gets a 502, as
+    // HA's proxy would answer, instead of an unhandled socket error.
+    up.on('error', () => {
+      if (!res.headersSent) res.writeHead(502);
+      res.end();
+    });
+    req.pipe(up);
+  });
+  return server;
+}
+
+const CODE_PAGE = `<!doctype html><title>Claude</title>
+  <p>Paste this into Claude Code:</p><code id="code">${GOOD_CODE}</code>
+  <button id="copy" onclick="navigator.clipboard.writeText(document.getElementById('code').textContent).then(() => this.textContent = 'Copied')">Copy Code</button>`;
+
+describe('Seat sign-in in a browser', { skip }, () => {
+  let sb;
+  let addon;
+  let ttyd;
+  let ha;
+  let haPort;
+  let browser;
+  let addonPort;
+
+  before(async () => {
+    sb = sandbox({ herdr: consoleHerdr() });
+    writeRunFiles(sb, { pane: 'w1:p1', workspace: 'w1', state: 'claude' });
+    writeFileSync(join(sb.data, 'claude', '.credentials.json'), '{"claudeAiOauth":{"accessToken":""}}');
+    const ttydPort = await freePort();
+    ttyd = http.createServer((q, s) => {
+      s.writeHead(200, { 'Content-Type': 'text/html' });
+      s.end('<body style="background:#000;color:#0f0;font:14px monospace">console here (stand-in ttyd)</body>');
+    }).listen(ttydPort, '127.0.0.1');
+    sb.env.ADDON_TTYD_PORT = String(ttydPort);
+    addon = await addonServer(sb, {});
+    addonPort = addon.port;
+    haPort = await freePort();
+    ha = haServer(() => addonPort).listen(haPort, '127.0.0.1');
+    // The full Chromium in its new headless mode (PW_CHANNEL=chromium) acts like a desktop
+    // browser with several tabs; the older headless shell is the default.
+    browser = await chromium.launch(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {});
+    if (SHOTS) mkdirSync(SHOTS, { recursive: true });
+  });
+
+  after(async () => {
+    await browser?.close();
+    addon?.child.kill();
+    ttyd?.close();
+    ha?.close();
+    sb?.cleanup();
+  });
+
+  async function open({ width = 1280, scheme = 'light' } = {}) {
+    const context = await browser.newContext({ viewport: { width, height: 800 }, colorScheme: scheme });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: `http://127.0.0.1:${haPort}` });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://claude.com' });
+    await context.route('https://claude.com/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: CODE_PAGE }));
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${haPort}/`);
+    const frame = page.frames().find((f) => f.url().includes(PREFIX)) || (await (await page.$('iframe')).contentFrame());
+    await frame.waitForSelector('#chip:not(:text("…"))');
+    return { context, page, frame };
+  }
+
+  async function shot(page, frame, name) {
+    if (!SHOTS) return;
+    await page.screenshot({ path: join(SHOTS, `${name}.png`) });
+    const wide = await frame.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert.ok(wide <= 0, `${name}: no sideways scroll (${wide}px over)`);
+  }
+
+  test('the whole sign-in: a new tab lands on the link, Copy Code, paste, Sign in, Signed in', async () => {
+    const { context, page, frame } = await open();
+    assert.equal(await frame.textContent('#chip'), 'sign in needed');
+    await shot(page, frame, 'console-1280-light');
+    await frame.click('#tab-seat');
+    await frame.waitForSelector('text=The login ran out.');
+    await shot(page, frame, 'seat-lapsed-1280-light');
+
+    const tabPromise = context.waitForEvent('page');
+    await frame.click('text=Sign in at claude.ai ↗');
+    const tab = await tabPromise;
+    await tab.waitForURL((u) => u.href.startsWith('https://claude.com/'));
+    assert.equal(tab.url(), GOOD_LINK, 'the new tab landed on the checked link');
+    assert.equal(await tab.evaluate(() => window.opener), null, 'the tab has no opener');
+    await frame.waitForSelector('#v-code:not([hidden])');
+    await shot(page, frame, 'seat-code-1280-light');
+
+    // On "claude.ai": press Copy Code. Back on the add-on page: read the clipboard, paste.
+    await tab.click('text=Copy Code');
+    await tab.waitForSelector('text=Copied');
+    await page.bringToFront();
+    const pasted = await frame.evaluate(() => navigator.clipboard.readText());
+    assert.equal(pasted, GOOD_CODE);
+    await frame.fill('#code', pasted);
+    await frame.click('#submit');
+    await frame.waitForSelector('text=Signed in. Claude in the Console was started again on the new login.');
+    assert.equal(await frame.textContent('#chip'), 'signed in');
+    await shot(page, frame, 'seat-done-1280-light');
+
+    await frame.click('text=Open the Console');
+    assert.equal(await frame.isVisible('#console iframe'), true);
+    const consoleFrame = frame.childFrames()[0];
+    await consoleFrame.waitForSelector('text=console here');
+    await frame.click('#tab-seat');
+    await frame.waitForSelector('#v-signed-in:not([hidden])');
+    assert.match(await frame.textContent('#v-signed-in'), /Signed in.*Plan.*max/s);
+    assert.match(await frame.textContent('#v-signed-in'), /Stored in the add-on's own folder \(\/data\/claude\)/);
+    await shot(page, frame, 'seat-signed-in-1280-light');
+    await context.close();
+  });
+
+  test('never signed in (no login file): "Not signed in yet." and the same button as a lapsed login', async () => {
+    rmSync(join(sb.data, 'claude', '.credentials.json'), { force: true });
+    const { context, frame } = await open();
+    assert.equal(await frame.textContent('#chip'), 'sign in needed');
+    await frame.click('#tab-seat');
+    await frame.waitForSelector('text=Not signed in yet.');
+    assert.equal(await frame.isVisible('text=The login ran out.'), false);
+    assert.equal(await frame.isVisible('text=Sign in at claude.ai ↗'), true);
+    await context.close();
+  });
+
+  test('no clipboard (HA over plain http): Copy the link shows the link in a box, selected', async () => {
+    writeFileSync(join(sb.data, 'claude', '.credentials.json'), '{"claudeAiOauth":{"accessToken":""}}');
+    const { context, frame } = await open();
+    // A page that is not a secure context has no navigator.clipboard at all.
+    await frame.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }));
+    await frame.click('#tab-seat');
+    const tab = context.waitForEvent('page');
+    await frame.click('text=Sign in at claude.ai ↗');
+    await (await tab).close();
+    assert.equal(await frame.isVisible('#link-box'), false, 'no box before Copy the link');
+    await frame.click('#copy');
+    await frame.waitForSelector('#link-box:visible');
+    assert.equal(await frame.inputValue('#link-box'), GOOD_LINK);
+    assert.equal(await frame.getAttribute('#link-box', 'readonly'), '');
+    const selected = await frame.evaluate(() => {
+      const b = document.getElementById('link-box');
+      return document.activeElement === b && b.selectionStart === 0 && b.selectionEnd === b.value.length;
+    });
+    assert.equal(selected, true, 'the whole link is selected');
+    await frame.click('#cancel');
+    await frame.waitForSelector('#link-box', { state: 'hidden' });
+    assert.equal(await frame.inputValue('#link-box'), '', 'Cancel hides and empties the box');
+    await context.close();
+  });
+
+  test('a login past its expiresAt shows the banner; the oauth_token option shows signed in by option', async () => {
+    const creds = join(sb.data, 'claude', '.credentials.json');
+    writeFileSync(creds, '{"claudeAiOauth":{"accessToken":"fake-x","expiresAt":1000}}');
+    let { context, frame } = await open();
+    assert.equal(await frame.textContent('#chip'), 'sign in needed');
+    await frame.click('#tab-seat');
+    await frame.waitForSelector('text=The login ran out.');
+    await context.close();
+
+    const opts = join(sb.data, 'options.json');
+    writeFileSync(opts, JSON.stringify({ seat_name: 'home', oauth_token: 'fake-option-token-value-secret' }));
+    try {
+      let page;
+      ({ context, page, frame } = await open({ width: 360 }));
+      assert.equal(await frame.textContent('#chip'), 'signed in');
+      await frame.click('#tab-seat');
+      await frame.waitForSelector('#v-signed-in:not([hidden])');
+      const text = await frame.textContent('#v-signed-in');
+      assert.match(text, /Signed in \(by the oauth_token option\)/);
+      assert.match(text, /clear that option and restart the add-on/);
+      assert.equal(await frame.isVisible('#again'), false, 'no Sign in again while the option is set');
+      assert.equal(await frame.isVisible('#plan'), false);
+      assert.ok(!(await frame.content()).includes('option-secret'));
+      await shot(page, frame, 'seat-by-option-360-light');
+      await context.close();
+    } finally {
+      writeFileSync(opts, JSON.stringify({ seat_name: 'home' }));
+    }
+  });
+
+  test('Open the sign-in again ↗ opens the link again; a wrong code gets the plain message', async () => {
+    writeFileSync(join(sb.data, 'claude', '.credentials.json'), '{"claudeAiOauth":{"accessToken":""}}');
+    const { context, frame } = await open();
+    await frame.click('#tab-seat');
+    const first = context.waitForEvent('page');
+    await frame.click('text=Sign in at claude.ai ↗');
+    const tab = await first;
+    await tab.waitForURL((u) => u.href.startsWith('https://claude.com/'));
+    await tab.close();
+    const again = context.waitForEvent('page');
+    await frame.click('text=Open the sign-in again ↗');
+    const tab2 = await again;
+    await tab2.waitForURL((u) => u.href.startsWith('https://claude.com/'));
+    assert.equal(tab2.url(), GOOD_LINK);
+
+    await frame.fill('#code', 'wrong-code-0123456789');
+    await frame.click('#submit');
+    await frame.waitForSelector('text=claude.ai did not take that code. Copy all of it and paste it again, or press Sign in at claude.ai for a fresh one.');
+    await frame.click('#cancel');
+    await context.close();
+  });
+
+  test('a bad link from the server: the blank tab is closed and nothing is opened', async () => {
+    addon.child.kill();
+    addon = await addonServer(sb, { FAKE_LINK: GOOD_LINK.replace('9d1c250a', '00000000') });
+    addonPort = addon.port;
+    const { context, frame } = await open();
+    await frame.click('#tab-seat');
+    const tabPromise = context.waitForEvent('page');
+    await frame.click('text=Sign in at claude.ai ↗');
+    const tab = await tabPromise;
+    if (!tab.isClosed()) await tab.waitForEvent('close', { timeout: 25000 });
+    assert.equal(tab.isClosed(), true, 'the blank tab was closed');
+    await frame.waitForSelector('text=The sign-in link was not one this add-on accepts');
+    assert.equal(context.pages().length, 1);
+    await context.close();
+  });
+
+  test('the page checks the link itself: a bad link in the answer closes the tab too', async () => {
+    addon.child.kill();
+    addon = await addonServer(sb, {});
+    addonPort = addon.port;
+    const { context, frame } = await open();
+    await context.route('**/api/login/start', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ url: `${GOOD_LINK}&scope=user%3Aprofile` }) }));
+    let landed = false;
+    await context.route('https://claude.com/**', (route) => {
+      landed = true;
+      return route.fulfill({ status: 200, contentType: 'text/html', body: CODE_PAGE });
+    });
+    await frame.click('#tab-seat');
+    const tabPromise = context.waitForEvent('page');
+    await frame.click('text=Sign in at claude.ai ↗');
+    const tab = await tabPromise;
+    if (!tab.isClosed()) await tab.waitForEvent('close', { timeout: 10000 });
+    assert.equal(landed, false, 'the tab never went to the bad link');
+    await frame.waitForSelector('text=The sign-in link was not one this add-on accepts');
+    await context.close();
+  });
+
+  test('screenshots at 360 px and 1280 px, light and dark, with no sideways scroll', { skip: SHOTS ? false : 'set SCREENSHOT_DIR' }, async () => {
+    for (const width of [360, 1280]) {
+      for (const scheme of ['light', 'dark']) {
+        const tag = `${width}-${scheme}`;
+        writeFileSync(join(sb.data, 'claude', '.credentials.json'), '{"claudeAiOauth":{"accessToken":""}}');
+        const { context, page, frame } = await open({ width, scheme });
+        await shot(page, frame, `console-${tag}`);
+        await frame.click('#tab-seat');
+        await frame.waitForSelector('text=The login ran out.');
+        await shot(page, frame, `seat-lapsed-${tag}`);
+        const tabPromise = context.waitForEvent('page');
+        await frame.click('text=Sign in at claude.ai ↗');
+        const tab = await tabPromise;
+        await tab.waitForURL((u) => u.href.startsWith('https://claude.com/'));
+        await page.bringToFront();
+        await frame.waitForSelector('#v-code:not([hidden])');
+        await shot(page, frame, `seat-code-${tag}`);
+        await frame.fill('#code', GOOD_CODE);
+        await frame.click('#submit');
+        await frame.waitForSelector('#v-done:not([hidden])');
+        await shot(page, frame, `seat-done-${tag}`);
+        await frame.click('text=Open the Console');
+        await frame.click('#tab-seat');
+        await frame.waitForSelector('#v-signed-in:not([hidden])');
+        await shot(page, frame, `seat-signed-in-${tag}`);
+        await context.close();
+      }
+    }
+  });
+});

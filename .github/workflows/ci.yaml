@@ -1,0 +1,83 @@
+name: CI
+
+# Every pull request and every push to main: the tests (with the real herdr), Home
+# Assistant's app linter, and a secret scan over the whole history. On main, the image
+# is built and published to GHCR only when claude-code/config.yaml has a new version.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  HERDR_VERSION: "0.9.3"
+  HERDR_SHA256: 18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7
+  GITLEAKS_VERSION: "8.30.1"
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+      - name: tmux
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux
+      - name: herdr (pinned, checksum checked)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/herdr" "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64"
+          echo "${HERDR_SHA256}  $RUNNER_TEMP/herdr" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/herdr"
+      - name: Unit, flows and the real herdr
+        working-directory: claude-code
+        run: HERDR_REAL="$RUNNER_TEMP/herdr" node --test 'tests/*.test.mjs'
+      - name: The Seat sign-in in a real browser
+        working-directory: claude-code
+        run: |
+          npm install --no-save --prefix "$RUNNER_TEMP/pw" playwright@1.59.1
+          npx --prefix "$RUNNER_TEMP/pw" playwright install --with-deps chromium
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright/index.mjs" node --test tests/browser/signin.browser.mjs
+
+  lint:
+    name: App linter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: frenck/action-addon-linter@v2.21.1
+        with:
+          path: ./claude-code
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: gitleaks over every commit
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -fsSL -o gl.tgz "${base}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o sums.txt "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep "linux_x64.tar.gz" sums.txt | sed 's#  .*#  gl.tgz#' | sha256sum -c -
+          tar xzf gl.tgz gitleaks
+          ./gitleaks git --redact --no-banner .
+
+  build:
+    name: Image
+    needs: [test, lint, secrets]
+    if: github.repository == 'emerson-flywheel/AI-Intervention'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/build-app.yaml
+    with:
+      app: claude-code
+      publish: ${{ github.event_name == 'push' }}
+    secrets: inherit

@@ -1,0 +1,31 @@
+---
+configuration:
+  permission_mode:
+    name: Permission mode
+    description: >-
+      default asks before every action (start here). acceptEdits applies file edits
+      by itself and still asks before commands. plan only reads and proposes.
+  start_folder:
+    name: Start folder
+    description: >-
+      The folder Claude starts in, for example a folder of your own notes under /share.
+      Empty starts in /homeassistant. Your config stays editable either way.
+  oauth_token:
+    name: OAuth token (optional)
+    description: >-
+      A token from `claude setup-token` on another computer. Leave empty and sign in
+      from the Seat tab instead (recommended; it renews itself).
+  seat_name:
+    name: Seat name
+    description: The name a remote console shows for this app's Claude login.
+  remote_key:
+    name: Remote console key (advanced)
+    description: >-
+      One ssh-ed25519 public key line. Leave empty to keep the remote console port closed.
+  remote_allow_from:
+    name: Remote console allowed from (advanced)
+    description: >-
+      The address(es) the remote key may log in from, for example 192.168.1.20 or
+      192.168.1.0/24, comma-separated. Required with a remote key.
+network:
+  22/tcp: Remote console (ssh, key only; closed unless a remote key is set)

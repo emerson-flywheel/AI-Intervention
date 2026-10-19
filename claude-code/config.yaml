@@ -1,0 +1,71 @@
+---
+# Home Assistant app: Claude Code
+# An interactive Claude Code session in a herdr console, shown inside HA via ingress
+# (Console and Seat tabs), plus an optional narrow ssh key for a remote console.
+# Signs in with your Claude Pro or Max plan, NOT an API key.
+name: "Claude Code"
+version: "0.3.0"
+slug: "claude_code"
+description: "Claude Code in your sidebar: a console that stays open, and sign-in from the browser. Uses your Claude Pro or Max plan, no API key."
+url: "https://github.com/emerson-flywheel/AI-Intervention"
+image: "ghcr.io/emerson-flywheel/ai-intervention"
+
+arch:
+  - amd64
+  - aarch64
+
+# Supervised, on-demand only: ordinary, interactive use, not an always-on autopilot.
+boot: manual
+startup: services
+init: false
+
+# Shown INSIDE HA: ingress serves the app's page (Console + Seat tabs) as a sidebar
+# panel. The page's server proxies the Console to ttyd on 127.0.0.1:7682.
+ingress: true
+ingress_port: 7681
+panel_icon: mdi:robot-happy
+panel_title: "Claude Code"
+
+# Full admin reach -------------------------------------------------------------
+# SUPERVISOR_TOKEN is injected when these are true; hassio_role:admin unlocks the
+# full Supervisor API (apps, backups, OS), homeassistant_api the full Core API.
+homeassistant_api: true
+hassio_api: true
+hassio_role: admin
+auth_api: false
+
+# The remote console: one ssh port, key auth only, every login forced into the app's
+# agent (no shell). sshd starts only when remote_key and remote_allow_from are set.
+ports:
+  22/tcp: 2248
+ports_description:
+  22/tcp: "Remote console (ssh, key only; stays closed unless remote_key is set)"
+
+# Filesystem access to all HA items (read-write). homeassistant_config = /homeassistant
+# (automations.yaml, configuration.yaml, .storage, etc.).
+map:
+  - homeassistant_config:rw
+  - addons:rw
+  - addon_config:rw
+  - ssl:rw
+  - share:rw
+  - media:rw
+  - backup:rw
+
+# Options (labels and help in translations/en.yaml; the full story in DOCS.md) --------
+# The container runs as root, so Claude Code blocks its fully-unattended modes; only
+# default / acceptEdits / plan are offered.
+options:
+  permission_mode: "default"
+  start_folder: ""
+  oauth_token: ""
+  seat_name: "claude"
+  remote_key: ""
+  remote_allow_from: ""
+schema:
+  permission_mode: "list(default|acceptEdits|plan)?"
+  start_folder: "str?"
+  oauth_token: "password?"
+  seat_name: "match(^[a-z0-9][a-z0-9-]{0,39}$)?"
+  remote_key: "str?"
+  remote_allow_from: "str?"
