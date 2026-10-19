@@ -22,7 +22,6 @@ PermitUserEnvironment no
 PermitUserRC no
 StrictModes yes
 PrintMotd no
-PrintLastLog no
 MaxAuthTries 3
 LoginGraceTime 20
 ClientAliveInterval 30

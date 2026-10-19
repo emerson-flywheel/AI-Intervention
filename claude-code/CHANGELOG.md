@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The remote console's ssh server no longer logs "Unsupported option PrintLastLog" at
+  start (the app's Alpine build has no lastlog, so the line did nothing).
+
 ## 0.3.4 — 2026-10-19
 
 - **Console theme** on the Settings tab: herdr's 17 built-in themes (dark and light),
