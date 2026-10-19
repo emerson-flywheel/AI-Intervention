@@ -4,8 +4,8 @@ Node 22, no npm dependencies, and tmux. Run from `claude-code/`.
 
 | Layer | Command | Needs |
 |---|---|---|
-| Unit + flows (link and code checks, agent verbs and refusals, sign-in with the fake `claude` in a real tmux, page server and proxy, key line, seat settings) | `node --test 'tests/*.test.mjs'` | tmux |
-| The same, plus the real herdr (console bootstrap, the loop, the guard, the pane gate, attach) | `HERDR_REAL=/path/to/herdr-0.9.3 node --test 'tests/*.test.mjs'` | herdr 0.9.3 binary |
+| Unit + flows (link and code checks, agent verbs and refusals, sign-in with the fake `claude` in a real tmux, page server and proxy, key line and remote status, seat settings, the Console's look) | `node --test 'tests/*.test.mjs'` | tmux, ssh-keygen |
+| The same, plus the real herdr (console bootstrap, the loop, the guard, the pane gate, attach, every theme's config) | `HERDR_REAL=/path/to/herdr-0.9.3 node --test 'tests/*.test.mjs'` | herdr 0.9.3 binary |
 | The Seat sign-in in a real browser, inside an ingress-style iframe | `PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs SCREENSHOT_DIR=/tmp/shots node --test tests/browser/signin.browser.mjs` | Playwright + Chromium; `PW_CHANNEL=chromium` for the full browser |
 | Attach-client fuzz: the prefix + every key, then clicks over the whole screen (~5 min) | `python3 tests/attach-fuzz.py /path/to/herdr rootfs/etc/herdr/attach.toml` → `RESULT HELD` | herdr, tmux |
 

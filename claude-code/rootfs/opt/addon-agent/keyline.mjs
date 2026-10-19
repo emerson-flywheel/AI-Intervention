@@ -1,12 +1,14 @@
 // Writes the remote key's one authorized_keys line from the remote_key and
-// remote_allow_from options.
+// remote_allow_from options, and the remote console's state in /run/claude-code/remote
+// (on, off, refused-key or refused-from) for the Settings tab.
 //   exit 0: written; exit 1: remote_key empty (no sshd); exit 2: not one plain
 //   ssh-ed25519 key; exit 3: remote_allow_from missing or not a plain address list.
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DATA, options } from './lib.mjs';
+import { DATA, RUN, options } from './lib.mjs';
 
 // "ssh-ed25519", one space, the 68-character base64 blob of a 32-byte ed25519 key, and
 // at most a plain comment. Nothing that could carry an option, a quote or a second line.
@@ -44,6 +46,41 @@ export function keyLine(key, from) {
   return `from="${hosts}",restrict,pty,command="node /opt/addon-agent/agent.mjs" ssh-ed25519 ${m[1]}`;
 }
 
+// By exit code: 0 on, 1 off, 2 refused-key, 3 refused-from.
+const STATES = ['on', 'off', 'refused-key', 'refused-from'];
+
+// The host key's fingerprint as ssh shows it (SHA256:, unpadded base64), or null.
+function fingerprint(file) {
+  try {
+    const m = readFileSync(file, 'utf8').trim().match(/^ssh-ed25519 ([A-Za-z0-9+/]+={0,2})(?: |$)/);
+    if (!m) return null;
+    return `SHA256:${createHash('sha256').update(Buffer.from(m[1], 'base64')).digest('base64').replace(/=+$/, '')}`;
+  } catch {
+    return null;
+  }
+}
+
+// The remote console for the Settings tab: its state as keyline.mjs left it at start
+// ("unknown" before then), and when on, the addresses it takes and the host key's
+// fingerprint. Never the keys themselves.
+export function remoteStatus(data = DATA, run = RUN) {
+  let state = 'unknown';
+  try {
+    const s = readFileSync(join(run, 'remote'), 'utf8').trim();
+    if (STATES.includes(s)) state = s;
+  } catch {}
+  if (state !== 'on') return { state, from: null, hostKey: null };
+  let opts = {};
+  try {
+    opts = JSON.parse(readFileSync(join(data, 'options.json'), 'utf8'));
+  } catch {}
+  return {
+    state,
+    from: allowFrom(opts.remote_allow_from),
+    hostKey: fingerprint(join(data, 'ssh', 'ssh_host_ed25519_key.pub')),
+  };
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const dir = join(DATA, 'ssh');
   const file = join(dir, 'authorized_keys');
@@ -63,4 +100,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       writeFileSync(file, `${line}\n`, { mode: 0o600 });
     }
   }
+  mkdirSync(RUN, { recursive: true });
+  writeFileSync(join(RUN, 'remote'), `${STATES[process.exitCode ?? 0]}\n`);
 }

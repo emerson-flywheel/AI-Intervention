@@ -8,6 +8,7 @@
 // Skipped, and said so, when Playwright cannot be loaded.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -372,6 +373,72 @@ describe('Seat sign-in in a browser', { skip }, () => {
     assert.equal(landed, false, 'the tab never went to the bad link');
     await frame.waitForSelector('text=The sign-in link was not one this add-on accepts');
     await context.close();
+  });
+
+  test('Settings: the Console\'s theme and font size, saved and shown once ttyd is back; the remote console', async () => {
+    const options = join(sb.data, 'options.json');
+    const keyDir = join(sb.data, 'ssh');
+    const contexts = [];
+    try {
+      writeFileSync(join(sb.run, 'ttyd.pid'), '100\n');
+      writeFileSync(join(sb.run, 'remote'), 'off\n');
+      const { context, page, frame } = await open();
+      contexts.push(context);
+      await frame.click('#tab-settings');
+      await frame.waitForSelector('#theme option', { state: 'attached' });
+      const themes = await frame.$$eval('#theme option', (os) => os.map((o) => [o.value, o.textContent]));
+      assert.equal(themes.length, 18);
+      assert.deepEqual(themes[0], ['', 'AI Intervention (default)']);
+      assert.deepEqual(themes.find(([v]) => v === 'catppuccin-latte'), ['catppuccin-latte', 'Catppuccin Latte (light)']);
+      assert.equal(await frame.inputValue('#theme'), '');
+      assert.deepEqual(await frame.$$eval('#font-size option', (os) => os.map((o) => o.textContent)),
+        ['Default (13 px)', '12 px', '14 px', '16 px', '18 px', '20 px']);
+      assert.equal(await frame.textContent('#remote-state'), 'Off. Set the remote_key option on the Configuration tab to turn it on.');
+      assert.equal(await frame.isVisible('#remote-host'), false, 'no host key shown while off');
+
+      await frame.selectOption('#theme', 'nord');
+      await frame.selectOption('#font-size', '16');
+      await frame.click('#save-look');
+      await frame.waitForSelector('text=Saved. The Console reconnects with the new look in a few seconds; Claude keeps running.');
+      assert.equal(readFileSync(join(sb.run, 'ttyd-restart'), 'utf8').trim(), '1', 'run.sh is asked to start ttyd again');
+      assert.match(readFileSync(join(sb.run, 'herdr', 'console.toml'), 'utf8'), /^name = "nord"$/m);
+      // run.sh's part: ttyd started again with a new process.
+      rmSync(join(sb.run, 'ttyd-restart'));
+      writeFileSync(join(sb.run, 'ttyd.pid'), '200\n');
+      await frame.waitForSelector('text=Saved. The Console has the new look.', { timeout: 8000 });
+      assert.equal(await frame.inputValue('#theme'), 'nord');
+      assert.equal(await frame.inputValue('#font-size'), '16');
+      assert.equal(await frame.$eval('#frame', (f) => getComputedStyle(f).backgroundColor), 'rgb(46, 52, 64)', 'Nord fills the frame');
+      await shot(page, frame, 'settings-console-1280-light');
+
+      // The remote console on: where from, and the host key's fingerprint.
+      writeFileSync(options, JSON.stringify({ remote_key: 'set', remote_allow_from: '192.0.2.10' }));
+      mkdirSync(keyDir, { recursive: true });
+      // A fresh ed25519 public key in ssh's format: its type and its 32 bytes, each length-prefixed.
+      const raw = generateKeyPairSync('ed25519').publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
+      const field = (b) => Buffer.concat([Buffer.from([0, 0, 0, b.length]), b]);
+      writeFileSync(join(keyDir, 'ssh_host_ed25519_key.pub'),
+        `ssh-ed25519 ${Buffer.concat([field(Buffer.from('ssh-ed25519')), field(raw)]).toString('base64')} test\n`);
+      writeFileSync(join(sb.run, 'remote'), 'on\n');
+      await frame.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await frame.waitForSelector('#remote-host:visible');
+      assert.equal(await frame.textContent('#remote-state'), 'On');
+      assert.equal(await frame.textContent('#remote-from'), '192.0.2.10');
+      assert.match(await frame.textContent('#remote-host'), /^SHA256:[A-Za-z0-9+/]{43}$/);
+      const wide = await open({ width: 360, scheme: 'dark' });
+      contexts.push(wide.context);
+      await wide.frame.click('#tab-settings');
+      await wide.frame.waitForSelector('#remote-host:visible');
+      await wide.frame.evaluate(() => document.querySelector('#remote-host').scrollIntoView());
+      await shot(wide.page, wide.frame, 'settings-remote-360-dark');
+    } finally {
+      for (const c of contexts) await c.close().catch(() => {});
+      for (const f of ['ttyd.pid', 'ttyd-restart', 'remote']) rmSync(join(sb.run, f), { force: true });
+      rmSync(join(sb.run, 'herdr'), { recursive: true, force: true });
+      rmSync(join(sb.data, 'look.json'), { force: true });
+      rmSync(keyDir, { recursive: true, force: true });
+      writeFileSync(options, '{}');
+    }
   });
 
   test('screenshots at 360 px and 1280 px, light and dark, with no sideways scroll', { skip: SHOTS ? false : 'set SCREENSHOT_DIR' }, async () => {

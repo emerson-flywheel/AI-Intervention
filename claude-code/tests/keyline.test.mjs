@@ -1,11 +1,12 @@
 // The remote key: exactly one authorized_keys line, only for one plain ssh-ed25519 key,
 // and only from the addresses the remote_allow_from option names.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { allowFrom, keyLine } from '../rootfs/opt/addon-agent/keyline.mjs';
+import { allowFrom, keyLine, remoteStatus } from '../rootfs/opt/addon-agent/keyline.mjs';
 import { runNode, sandbox } from './helpers.mjs';
 
 function ed25519Line(comment = 'remote@box') {
@@ -107,4 +108,47 @@ test('keyline.mjs writes the one line (0600) from the options, removes it when e
     assert.equal(existsSync(join(nowhere.data, 'ssh', 'authorized_keys')), false);
     nowhere.cleanup();
   }
+});
+
+test('keyline.mjs leaves the remote console\'s state in /run for the Settings tab', async () => {
+  const { line } = ed25519Line();
+  for (const [options, want] of [
+    [{ remote_key: line, remote_allow_from: FROM }, 'on'],
+    [{ remote_key: '' }, 'off'],
+    [{ remote_key: `command="sh" ${line}`, remote_allow_from: FROM }, 'refused-key'],
+    [{ remote_key: line, remote_allow_from: '*' }, 'refused-from'],
+  ]) {
+    const sb = sandbox({ options });
+    await runNode(sb, 'keyline.mjs');
+    assert.equal(readFileSync(join(sb.run, 'remote'), 'utf8'), `${want}\n`, JSON.stringify(options));
+    sb.cleanup();
+  }
+});
+
+test('remoteStatus: the state, and when on, where from and the host key\'s fingerprint only', () => {
+  const sb = sandbox({ options: { remote_key: ed25519Line().line, remote_allow_from: ' 192.0.2.10, 192.0.2.0/24 ' } });
+  const status = () => remoteStatus(sb.data, sb.run);
+  assert.deepEqual(status(), { state: 'unknown', from: null, hostKey: null }, 'nothing written yet: the app is starting');
+  writeFileSync(join(sb.run, 'remote'), 'sideways\n');
+  assert.deepEqual(status(), { state: 'unknown', from: null, hostKey: null });
+
+  writeFileSync(join(sb.run, 'remote'), 'on\n');
+  assert.deepEqual(status(), { state: 'on', from: '192.0.2.10,192.0.2.0/24', hostKey: null }, 'no host key file yet');
+  const keyDir = join(sb.data, 'ssh');
+  mkdirSync(keyDir, { recursive: true });
+  execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'test host', '-f', join(keyDir, 'ssh_host_ed25519_key')]);
+  const want = execFileSync('ssh-keygen', ['-lf', join(keyDir, 'ssh_host_ed25519_key.pub')]).toString().split(' ')[1];
+  assert.match(want, /^SHA256:[A-Za-z0-9+/]{43}$/);
+  const on = status();
+  assert.equal(on.hostKey, want, 'the same fingerprint ssh shows');
+  const pub = readFileSync(join(keyDir, 'ssh_host_ed25519_key.pub'), 'utf8').split(' ')[1];
+  assert.ok(!JSON.stringify(on).includes(pub.slice(20, 40)), 'never the key itself');
+
+  writeFileSync(join(keyDir, 'ssh_host_ed25519_key.pub'), 'not a key\n');
+  assert.equal(status().hostKey, null, 'an odd key file shows no fingerprint');
+  for (const state of ['off', 'refused-key', 'refused-from']) {
+    writeFileSync(join(sb.run, 'remote'), `${state}\n`);
+    assert.deepEqual(status(), { state, from: null, hostKey: null }, state);
+  }
+  sb.cleanup();
 });

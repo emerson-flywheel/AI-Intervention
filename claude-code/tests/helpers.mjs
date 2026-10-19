@@ -25,6 +25,7 @@ export function sandbox({ options = {}, herdr = null, seat = 'home' } = {}) {
     ...process.env,
     ADDON_DATA: data,
     ADDON_RUN: run,
+    ADDON_HERDR_ETC: join(HERE, '..', 'rootfs', 'etc', 'herdr'),
     HERDR_BIN: join(FAKES, 'herdr'),
     CLAUDE_BIN: join(FAKES, 'claude'),
     FAKE_HERDR_STATE: state,

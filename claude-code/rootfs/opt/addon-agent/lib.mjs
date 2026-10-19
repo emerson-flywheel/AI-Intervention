@@ -1,7 +1,7 @@
 // Shared by the seat server, the remote agent and the console bootstrap.
 // Every path can be moved with an env var so the tests run outside the add-on.
 import { execFile } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const env = process.env;
@@ -11,8 +11,10 @@ export const CLAUDE_DIR = join(DATA, 'claude');
 export const HERDR = env.HERDR_BIN || 'herdr';
 export const TMUX = env.TMUX_BIN || 'tmux';
 export const CLAUDE = env.CLAUDE_BIN || 'claude';
-export const CONSOLE_CONFIG = env.ADDON_CONSOLE_CONFIG || '/etc/herdr/console.toml';
-export const ATTACH_CONFIG = env.ADDON_ATTACH_CONFIG || '/etc/herdr/attach.toml';
+// herdr's configs: the ones look.mjs wrote for the Console's look, else the shipped ones.
+const herdrConfig = (name) => (existsSync(join(RUN, 'herdr', name)) ? join(RUN, 'herdr', name) : `/etc/herdr/${name}`);
+export const CONSOLE_CONFIG = env.ADDON_CONSOLE_CONFIG || herdrConfig('console.toml');
+export const ATTACH_CONFIG = env.ADDON_ATTACH_CONFIG || herdrConfig('attach.toml');
 export const SESSION = 'claude';
 export const CONSOLE = 'claude';
 export const NAME_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;

@@ -200,7 +200,7 @@ describe('page server', () => {
 
   test('sign-in through the API: link, wrong code, right code; never the token or code back', async () => {
     let s = JSON.parse((await req(srv.port, '/api/state')).body);
-    const { settings, ...rest } = s;
+    const { settings, console: look, remote, view, ...rest } = s;
     assert.deepEqual(rest, { seat: 'home', signedIn: false, lapsed: false, plan: null, since: null, byOption: false, login: 'none' });
     assert.equal(settings.provider, 'anthropic');
 
@@ -253,6 +253,41 @@ describe('page server', () => {
     assert.equal(existsSync(relaunch), false, 'a new name alone leaves Claude running');
     rmSync(settingsFile, { force: true });
     rmSync(join(sb.data, 'seat.json'), { force: true });
+  });
+
+  test('api/console/look: saves the theme and font size, writes herdr\'s configs, asks for the Console client again', async () => {
+    const restart = join(sb.run, 'ttyd-restart');
+    rmSync(restart, { force: true });
+    let state = JSON.parse((await req(srv.port, '/api/state')).body);
+    assert.deepEqual([state.console.theme, state.console.fontSize], ['', '']);
+    assert.equal(state.console.themes.length, 18);
+    assert.equal(state.remote.state, 'unknown');
+    assert.equal(state.view, null, 'no ttyd started by run.sh here');
+
+    const plain = await req(srv.port, '/api/console/look', { method: 'POST', body: '{}',
+      headers: { 'Content-Type': 'application/json' } });
+    assert.equal(plain.status, 403);
+    const bad = await post(srv.port, '/api/console/look', { theme: 'everforest', fontSize: '' });
+    assert.deepEqual([bad.status, JSON.parse(bad.body)], [400, { error: 'bad-theme' }]);
+    const badSize = await post(srv.port, '/api/console/look', { theme: 'nord', fontSize: '99' });
+    assert.deepEqual([badSize.status, JSON.parse(badSize.body)], [400, { error: 'bad-font-size' }]);
+    assert.equal(existsSync(restart), false);
+
+    writeFileSync(join(sb.run, 'ttyd.pid'), '4242\n');
+    const ok = await post(srv.port, '/api/console/look', { theme: 'nord', fontSize: '16' });
+    assert.deepEqual([ok.status, JSON.parse(ok.body)], [200, { saved: true, reload: true }]);
+    assert.ok(existsSync(restart), 'run.sh starts the Console\'s client again');
+    assert.match(readFileSync(join(sb.run, 'herdr', 'console.toml'), 'utf8'), /^name = "nord"$/m);
+    assert.match(readFileSync(join(sb.run, 'herdr', 'attach.toml'), 'utf8'), /^name = "nord"$/m);
+    state = JSON.parse((await req(srv.port, '/api/state')).body);
+    assert.deepEqual([state.console.theme, state.console.fontSize, state.view], ['nord', '16', '4242']);
+
+    rmSync(restart);
+    const same = await post(srv.port, '/api/console/look', { theme: 'nord', fontSize: '16' });
+    assert.deepEqual([same.status, JSON.parse(same.body)], [200, { saved: true, reload: false }]);
+    assert.equal(existsSync(restart), false, 'nothing new, the Console is left alone');
+    rmSync(join(sb.data, 'look.json'));
+    rmSync(join(sb.run, 'ttyd.pid'));
   });
 
   test('cancel closes a waiting sign-in and leaves the stored login alone', async () => {

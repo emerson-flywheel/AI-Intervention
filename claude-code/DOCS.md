@@ -76,6 +76,12 @@ changes; update the app (or sign in from the Console) then.
   detaches; coming back attaches to the same running Claude.
 - After an app restart Claude resumes the last conversation (`--continue`).
 - When Claude exits you get a shell; leave it (`exit`) and Claude starts again.
+- **Its look** (Settings › Console): a theme and a font size. The themes are herdr's own
+  (Catppuccin, Tokyo Night, Dracula, Nord, Gruvbox, One, Solarized, Kanagawa, Rosé Pine,
+  Vesper, with light versions), each with matching terminal colours; *AI Intervention
+  (default)* is the app's own look. Save writes `/data/look.json`, and the Console
+  reconnects with the new look within a few seconds. Claude keeps running and the
+  conversation stays. A remote console's herdr takes the theme from its next attach.
 
 ## Options
 
@@ -113,7 +119,8 @@ Claude consoles). Leave both options empty and the port stays closed.
   No forwarding of any kind, keys only, and every login runs the app's agent whatever
   command was asked for. There is no shell.
 - The host key is made once in `/data/ssh/` and kept; the log prints its fingerprint at
-  start, so the remote side can pin it.
+  start, and Settings › Remote console shows it (with whether the port is open and from
+  where), so the remote side can pin it. Installing the app again makes a new one.
 - The agent answers these commands (one per login, as the ssh command): `snapshot`,
   `type <console>` (the line on stdin), `interrupt <console>`, `history <console>`,
   `attach <console>`, `seats`, `seat-login <seat>`, `seat-code <seat>` (the code on

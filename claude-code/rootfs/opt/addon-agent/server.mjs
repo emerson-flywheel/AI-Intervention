@@ -7,7 +7,9 @@ import http from 'node:http';
 import net from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { relaunchConsole, seatName } from './lib.mjs';
+import { remoteStatus } from './keyline.mjs';
+import { readRun, relaunchConsole, seatName, writeRun } from './lib.mjs';
+import { LookError, lookSettings, saveLook, writeConfigs } from './look.mjs';
 import { LoginError, cancelLogin, loginWaiting, seatLogin, startLogin, submitCode, withLoginLock } from './seat.mjs';
 import { SettingsError, saveSeatSettings, seatSettings } from './settings.mjs';
 
@@ -70,7 +72,16 @@ function readJson(req, cap = 4096) {
 async function state() {
   const seat = seatName();
   const login = seatLogin();
-  return { seat, ...login, login: (await loginWaiting(seat)) ? 'waiting' : 'none', settings: seatSettings() };
+  return {
+    seat,
+    ...login,
+    login: (await loginWaiting(seat)) ? 'waiting' : 'none',
+    settings: seatSettings(),
+    console: lookSettings(),
+    remote: remoteStatus(),
+    // The Console client's process (run.sh writes it): the page reloads the Console once it changes.
+    view: readRun('ttyd.pid'),
+  };
 }
 
 async function api(req, res, path) {
@@ -106,9 +117,20 @@ async function api(req, res, path) {
       });
       return send(res, 200, { saved: true, relaunched });
     }
+    // A new look: herdr's configs are written for it and run.sh starts ttyd again (within
+    // 5 s), so the Console's client picks both up. Claude and its conversation keep running.
+    if (path === '/api/console/look') {
+      const body = await readJson(req);
+      const { changed } = saveLook(body || {});
+      if (changed) {
+        writeConfigs();
+        writeRun('ttyd-restart', '1');
+      }
+      return send(res, 200, { saved: true, reload: changed });
+    }
   } catch (err) {
     if (err instanceof LoginError) return send(res, STATUS[err.code] || 409, { error: err.code });
-    if (err instanceof SettingsError) return send(res, 400, { error: err.code });
+    if (err instanceof SettingsError || err instanceof LookError) return send(res, 400, { error: err.code });
     return send(res, 500, { error: 'failed' });
   }
   return send(res, 404, { error: 'not found' });

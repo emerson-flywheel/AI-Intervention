@@ -74,7 +74,8 @@ fi
 # the workspace (transcripts persist in /data/claude), so a restart picks up where it
 # left off and a fresh state still starts cleanly.
 mkdir -p "${RUN}/guard.d"
-rm -f "${RUN}"/guard.d/* "${RUN}/relaunch" "${RUN}/state" "${RUN}/pane" "${RUN}/workspace"
+rm -f "${RUN}"/guard.d/* "${RUN}/relaunch" "${RUN}/state" "${RUN}/pane" "${RUN}/workspace" \
+    "${RUN}/ttyd-restart" "${RUN}/ttyd.pid" "${RUN}/remote"
 {
     printf 'WORKDIR=%q\n' "${WORKDIR}"
     printf 'CLAUDE_CONFIG_DIR=%q\n' "${CLAUDE_CONFIG_DIR}"
@@ -83,9 +84,17 @@ rm -f "${RUN}"/guard.d/* "${RUN}/relaunch" "${RUN}/state" "${RUN}/pane" "${RUN}/
     printf ' )\n'
 } > "${RUN}/console.env"
 
+# --- The Console's look (Settings tab): herdr's configs for it, written under /run ---
+if node "${AGENT}/look.mjs" configs; then
+    export HERDR_CONFIG_PATH="${RUN}/herdr/console.toml"
+else
+    log "Console look: herdr's configs could not be written; using the shipped ones."
+    rm -rf "${RUN}/herdr"
+    export HERDR_CONFIG_PATH="/etc/herdr/console.toml"
+fi
+
 # --- herdr: the console ---
 export HOME="${HOME:-/root}"
-export HERDR_CONFIG_PATH="/etc/herdr/console.toml"
 unset XDG_CONFIG_HOME
 HERDR_PID=""
 start_herdr() {
@@ -99,12 +108,17 @@ start_herdr() {
 }
 
 # --- ttyd: the page's Console tab (a herdr client) ---
+# The look's font size and colours are ttyd client options, read at each start; the page
+# watches ttyd.pid to reload the Console when ttyd starts again for a new look.
 TTYD_PID=""
 start_ttyd() {
+    local look=()
+    mapfile -t look < <(node "${AGENT}/look.mjs" ttyd-args 2>/dev/null || true)
     ttyd --interface 127.0.0.1 --port 7682 --base-path /console --writable \
-        --client-option titleFixed="Claude Code" \
+        --client-option titleFixed="AI Intervention" ${look[@]+"${look[@]}"} \
         "${AGENT}/console-attach.sh" &
     TTYD_PID=$!
+    printf '%s\n' "${TTYD_PID}" > "${RUN}/ttyd.pid"
 }
 
 # --- the page (ingress port 7681) ---
@@ -172,6 +186,17 @@ while :; do
     elif ! node "${AGENT}/console.mjs" check; then
         log "Console workspace missing; making it again."
         node "${AGENT}/console.mjs" bootstrap "${WORKDIR}" || true
+    fi
+    # A new look from the Settings tab: ttyd again, so its client reads the new herdr config
+    # and ttyd's colours and font size. Claude, in the herdr server, keeps running.
+    if [ -f "${RUN}/ttyd-restart" ]; then
+        rm -f "${RUN}/ttyd-restart"
+        log "Console look changed; starting the Console's client again."
+        if alive "${TTYD_PID}"; then
+            kill "${TTYD_PID}" 2>/dev/null || true
+            wait "${TTYD_PID}" 2>/dev/null || true
+        fi
+        start_ttyd
     fi
     alive "${TTYD_PID}" || { log "ttyd stopped; starting it again."; start_ttyd; }
     alive "${PAGE_PID}" || { log "Page server stopped; starting it again."; start_page; }

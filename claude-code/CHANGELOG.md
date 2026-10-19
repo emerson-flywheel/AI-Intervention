@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.4 — 2026-10-19
+
+- **Console theme** on the Settings tab: herdr's 17 built-in themes (dark and light),
+  each with matching terminal colours, or the app's own look (the default, unchanged).
+  The Console reconnects with it in a few seconds; Claude keeps running.
+- **Console font size**: 12 to 20 px (13 px is ttyd's default).
+- **Remote console** on the Settings tab: on or off (and why), the addresses it takes,
+  and the host key's fingerprint to pin on the other computer.
+- The Console's own page title says AI Intervention (it still said Claude Code).
+
 ## 0.3.3 — 2026-10-19
 
 - **Renamed to AI Intervention** (store, sidebar and page title). It still runs Claude

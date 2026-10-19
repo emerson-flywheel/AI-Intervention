@@ -230,3 +230,22 @@ test('attach.toml unbinds every key action herdr 0.9.3 has, and herdr accepts bo
     assert.equal(r.toString().trim(), 'config: ok', f);
   }
 });
+
+test('every Console theme gives configs herdr accepts as they are (an unknown name is refused)', { skip }, async () => {
+  const { THEMES, herdrConfig } = await import(join(AGENT_DIR, 'look.mjs'));
+  const dir = mkdtempSync(join(tmpdir(), 'ht-'));
+  const check = (text) => {
+    writeFileSync(join(dir, 'c.toml'), text);
+    const r = spawnSync(REAL, ['config', 'check'], { env: { ...process.env, HERDR_CONFIG_PATH: join(dir, 'c.toml') } });
+    return `${r.stdout}${r.stderr}`.trim();
+  };
+  const attach = readFileSync(join(ETC, 'attach.toml'), 'utf8');
+  assert.match(check(attach.replace(/^\[theme\][^]*$/m, '[theme]\nname = "everforest"\n')), /unknown theme name/,
+    'the control: herdr refuses a name it does not have');
+  for (const t of THEMES) {
+    for (const f of ['console.toml', 'attach.toml']) {
+      assert.equal(check(herdrConfig(readFileSync(join(ETC, f), 'utf8'), t.id)), 'config: ok', `${t.id || 'default'} ${f}`);
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+});
