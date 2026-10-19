@@ -26,14 +26,6 @@ say yes.
    **Show in sidebar**.
 3. Open it, go to **Settings**, press **Sign in at claude.ai**, and paste the code back.
 
-**While the ready-made image is private** (you were given access to it), Home Assistant
-needs a GitHub login to download it. Once, before step 2: on GitHub make a key that can
-only download (Settings › Developer settings › Personal access tokens › Tokens (classic),
-scope `read:packages` only, no expiration), then in Home Assistant Settings › Apps ›
-Install app › ⋮ › **Registry credentials** › Add registry: `ghcr.io`, your GitHub
-username, and the key. Home Assistant uses that login for everything it downloads from
-ghcr.io, so if the key is ever deleted, remove the login there too.
-
 ## You need
 
 - Home Assistant OS or Supervised (anything with Apps), on a 64-bit Intel/AMD or ARM box.
