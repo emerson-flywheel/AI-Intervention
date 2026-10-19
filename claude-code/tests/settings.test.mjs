@@ -53,6 +53,33 @@ describe('seat settings', () => {
     sb.cleanup();
   });
 
+  test('the Provider list: all three in order, only Anthropic can be picked', async () => {
+    const sb = sandbox();
+    const s = await inBox(sb, 'return seatSettings()');
+    assert.deepEqual(s.providers, [
+      { id: 'anthropic', label: 'Anthropic', program: 'Claude Code', runs: true },
+      { id: 'openai', label: 'OpenAI', program: null, runs: false },
+      { id: 'grok', label: 'Grok', program: null, runs: false },
+    ]);
+    sb.cleanup();
+  });
+
+  test('save takes the provider: Anthropic is kept, one not run (or unknown) is refused', async () => {
+    const sb = sandbox();
+    const code = async (body) => (await inBox(sb, `try { saveSeatSettings(${body}); return 'saved'; } catch (e) { return e.code; }`));
+    assert.equal(await code("{ name: '', provider: 'openai', model: '', thinking: '' }"), 'bad-provider');
+    assert.equal(await code("{ name: '', provider: 'grok', model: '', thinking: '' }"), 'bad-provider');
+    assert.equal(await code("{ name: '', provider: 'toString', model: '', thinking: '' }"), 'bad-provider');
+    assert.equal(await code("{ name: '', provider: 5, model: '', thinking: '' }"), 'bad-provider');
+    assert.equal(existsSync(join(sb.data, 'seat.json')), false, 'a refused provider writes nothing');
+    assert.equal(await code("{ name: 'Home', provider: 'anthropic', model: '', thinking: '' }"), 'saved');
+    assert.deepEqual(JSON.parse(readFileSync(join(sb.data, 'seat.json'), 'utf8')), { name: 'Home', provider: 'anthropic' });
+    // A save without a provider (an older page) keeps the seat's provider.
+    assert.equal(await code("{ name: 'Home', model: '', thinking: '' }"), 'saved');
+    assert.equal((await inBox(sb, 'return seatSettings()')).provider, 'anthropic');
+    sb.cleanup();
+  });
+
   test('save writes model and effort where Claude Code reads them, and keeps every other setting', async () => {
     const sb = sandbox();
     writeFileSync(settingsFile(sb), JSON.stringify({ theme: 'dark', permissions: { allow: ['Read'] } }));

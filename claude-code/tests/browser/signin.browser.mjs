@@ -280,8 +280,14 @@ describe('Seat sign-in in a browser', { skip }, () => {
       assert.ok(Math.max(...tops) - Math.min(...tops) <= 4, `one row: ${tops}`);
       assert.equal(await frame.textContent('#seat-name'), 'home', 'no name yet: the seat id');
       assert.match(await frame.textContent('#seat-meta'), /^Pro plan · since /);
-      assert.equal(await frame.textContent('#provider'), 'Anthropic');
-      assert.equal(await frame.textContent('#program'), 'Claude Code');
+      // Provider is a list: Anthropic picked; OpenAI and Grok shown but greyed out.
+      assert.equal(await frame.inputValue('#provider'), 'anthropic');
+      const providers = await frame.$$eval('#provider option', (os) => os.map((o) => [o.value, o.textContent, o.disabled]));
+      assert.deepEqual(providers, [
+        ['anthropic', 'Anthropic · Claude Code', false],
+        ['openai', 'OpenAI · coming later', true],
+        ['grok', 'Grok · coming later', true],
+      ]);
       assert.equal(await frame.inputValue('#model'), '');
       assert.equal(await frame.inputValue('#thinking'), '');
 

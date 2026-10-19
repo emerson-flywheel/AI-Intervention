@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2 — 2026-10-19
+
+- **Provider is a list**: Anthropic (Claude Code) is picked. OpenAI and Grok are listed
+  but greyed out ("coming later"): the app does not run them yet.
+
 ## 0.3.1 — 2026-10-19
 
 - **The Seat tab is now Settings**, with a **Seat(s)** section. The seat's row reads

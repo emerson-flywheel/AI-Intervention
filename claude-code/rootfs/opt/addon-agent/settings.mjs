@@ -1,7 +1,8 @@
 // The seat on the Settings tab: the name the user gives it (kept in /data/seat.json), its
 // provider, and that provider's model and thinking level. Anthropic (Claude Code) is the only
 // provider this app runs. The table below is where another would go: OpenAI and Grok are
-// listed but not run, since each needs its own program and sign-in in the image first.
+// listed (greyed out in the Provider list) but not run, since each needs its own program and
+// sign-in in the image first.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CLAUDE_DIR, DATA } from './lib.mjs';
@@ -123,6 +124,8 @@ export function seatSettings() {
     provider,
     providerLabel: p.label,
     program: p.program,
+    // The Provider list: every provider in the table; only those that run can be picked.
+    providers: Object.entries(PROVIDERS).map(([id, x]) => ({ id, label: x.label, program: x.program, runs: x.runs })),
     model: now.model,
     thinking: now.thinking,
     models,
@@ -131,13 +134,17 @@ export function seatSettings() {
   };
 }
 
-// Save the name, model and thinking level. changed: the model or thinking level is new, so
-// Claude in the Console must start again to use it. A settings file that is not JSON is
-// left alone (it may hold the user's other settings) and nothing is written.
-export function saveSeatSettings({ name, model, thinking } = {}) {
+// Save the name, provider, model and thinking level. changed: the model or thinking level is
+// new, so Claude in the Console must start again to use it. A settings file that is not JSON
+// is left alone (it may hold the user's other settings) and nothing is written. A provider
+// this app does not run is refused; a save without one keeps the seat's.
+export function saveSeatSettings({ name, provider: asked, model, thinking } = {}) {
   const cleanName = checkName(name);
   if (cleanName === null) throw new SettingsError('bad-name');
-  const { provider } = profile();
+  if (asked !== undefined && !(Object.hasOwn(PROVIDERS, asked) && PROVIDERS[asked].runs)) {
+    throw new SettingsError('bad-provider');
+  }
+  const provider = asked ?? profile().provider;
   const p = PROVIDERS[provider];
   const file = readJson(p.settings.file());
   const now = p.settings.read(file.unreadable || !isObject(file.value) ? {} : file.value);

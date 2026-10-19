@@ -7,7 +7,7 @@ const $ = (id) => document.getElementById(id);
 const views = ['v-signed-in', 'v-signed-out', 'v-code', 'v-done'];
 let link = null;
 let busy = false;
-// Edits not saved yet: a refresh leaves the name, model and thinking as typed.
+// Edits not saved yet: a refresh leaves the name, provider, model and thinking as typed.
 let dirty = false;
 
 const MESSAGES = {
@@ -19,6 +19,7 @@ const MESSAGES = {
   'no-link': 'The sign-in did not start. Try again in a minute.',
   busy: 'Another sign-in step is running. Wait a moment, then try again.',
   'bad-name': 'A name is up to 40 characters on one line.',
+  'bad-provider': 'That provider is not one this app runs yet. Reload the page and pick Anthropic.',
   'bad-model': 'That model is not one this app offers. Reload the page and pick again.',
   'bad-thinking': 'That thinking level is not one this app offers. Reload the page and pick again.',
   'settings-unreadable':
@@ -83,6 +84,7 @@ function options(select, list, pick) {
       const el = document.createElement('option');
       el.value = o.id;
       el.textContent = o.label;
+      el.disabled = Boolean(o.disabled);
       el.selected = o.id === pick;
       return el;
     }),
@@ -104,10 +106,15 @@ function seatHead(s) {
     meta = [plan, since].filter(Boolean).join(' · ');
   }
   $('seat-meta').textContent = meta;
-  $('provider').textContent = set.providerLabel || '';
-  $('program').textContent = set.program || '';
   if (!dirty) {
     $('name').value = set.name || '';
+    // OpenAI and Grok are listed but greyed out: this app runs only Anthropic (Claude Code).
+    const providers = (set.providers || []).map((p) => ({
+      id: p.id,
+      label: `${p.label} · ${p.runs ? p.program : 'coming later'}`,
+      disabled: !p.runs,
+    }));
+    options($('provider'), providers, set.provider || '');
     options($('model'), set.models || [], set.model || '');
     options($('thinking'), set.thinkingLevels || [], set.thinking || '');
   }
@@ -209,6 +216,7 @@ async function save() {
   $('save').disabled = true;
   const r = await post('api/seat/settings', {
     name: $('name').value,
+    provider: $('provider').value,
     model: $('model').value,
     thinking: $('thinking').value,
   });
@@ -234,7 +242,7 @@ $('tab-settings').addEventListener('click', () => {
   selectTab('settings');
   refresh();
 });
-for (const id of ['name', 'model', 'thinking']) {
+for (const id of ['name', 'provider', 'model', 'thinking']) {
   $(id).addEventListener('input', () => {
     dirty = true;
     $('saved').hidden = true;

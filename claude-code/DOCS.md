@@ -39,7 +39,8 @@ The seat is the Claude login this app uses. Its row reads **Seat**, the seat's n
 
 - **Name**: any name you like, up to 40 characters (for example *Home*). It is kept in
   the app's own folder. Until you set one, the seat shows its `seat_name` option.
-- **Provider**: **Anthropic** (Claude Code). It is the only one this app runs today.
+- **Provider**: a list with **Anthropic** (Claude Code) picked. OpenAI and Grok are in
+  the list but greyed out ("coming later"): Anthropic is the only one this app runs today.
 - **Model**: *Default* (your plan picks), Opus, Sonnet, Haiku or Fable. A model you chose
   in the Console with `/model` shows here too.
 - **Thinking**: *Default*, Low, Medium, High or Extra high (Claude Code's effort level).
