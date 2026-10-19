@@ -32,7 +32,6 @@ panel_title: "Claude Code"
 homeassistant_api: true
 hassio_api: true
 hassio_role: admin
-auth_api: false
 
 # The remote console: one ssh port, key auth only, every login forced into the app's
 # agent (no shell). sshd starts only when remote_key and remote_allow_from are set.

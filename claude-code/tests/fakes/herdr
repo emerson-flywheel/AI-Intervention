@@ -2,15 +2,35 @@
 // A stand-in herdr CLI for the tests: state in $FAKE_HERDR_STATE (JSON), every call
 // appended to its "calls". Answers in herdr 0.9.3's shapes: JSON results on stdout, JSON
 // errors on stderr with exit 1, nothing for send-text/send-keys, raw text for pane read.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 
 const file = process.env.FAKE_HERDR_STATE;
+// Two calls can overlap (the attach and its pane watcher), and on a slow machine one read
+// half a write: hold a lock from read to write, and write by rename. A lock left by a
+// killed call is stale after 2 s.
+const lock = `${file}.lock`;
+for (const end = Date.now() + 10000; ; ) {
+  try {
+    closeSync(openSync(lock, 'wx'));
+    break;
+  } catch (err) {
+    if (err.code !== 'EEXIST' || Date.now() > end) throw err;
+    try {
+      if (Date.now() - statSync(lock).mtimeMs > 2000) rmSync(lock, { force: true });
+    } catch {}
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  }
+}
+process.on('exit', () => rmSync(lock, { force: true }));
 const st = JSON.parse(readFileSync(file, 'utf8'));
 let args = process.argv.slice(2);
 if (args[0] === '--session') args = args.slice(2);
 st.calls = st.calls || [];
 st.calls.push(args);
-const save = () => writeFileSync(file, JSON.stringify(st));
+const save = () => {
+  writeFileSync(`${file}.tmp`, JSON.stringify(st));
+  renameSync(`${file}.tmp`, file);
+};
 const ok = (result) => {
   save();
   process.stdout.write(`${JSON.stringify({ id: 'cli', result })}\n`);
