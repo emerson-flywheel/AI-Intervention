@@ -21,7 +21,7 @@ Home Assistant and Norish are opened under different host names.
 ## GitHub backup
 
 1. On GitHub, create an empty **private** repository, e.g. `norish-recipes-backup`.
-2. Set **backup_repo** to its SSH address, e.g. `git@github.com:you/norish-recipes-backup.git`.
+2. Set **backup_repo** (under "Show unused optional configuration options") to its SSH address, e.g. `git@github.com:you/norish-recipes-backup.git`.
 3. In Norish → Settings → API token, create a token and paste it into **backup_token**.
 4. Restart the add-on. The log shows a line starting `ssh-ed25519`: that is the deploy
    key (its public half, safe to copy). Add it on GitHub under the repository's
@@ -45,7 +45,7 @@ Settings → Import. A recipe with the same name or link is overwritten by the i
 | --- | --- |
 | `url` | The address Norish is opened at (Norish's sign-in needs it exact). |
 | `extra_origins` | Other addresses Norish is also opened at, e.g. `http://192.168.1.10:3000`. |
-| `backup_repo` | The private GitHub repo for the nightly backup. Empty turns the backup off. |
+| `backup_repo` | The private GitHub repo for the nightly backup. Not set turns the backup off. |
 | `backup_token` | A Norish API token from an admin account. |
 | `backup_time` | When the nightly backup runs (HH:MM, Home Assistant's time zone). |
 

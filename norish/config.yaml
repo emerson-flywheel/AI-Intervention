@@ -2,9 +2,9 @@
 # Home Assistant add-on: Norish
 # Norish (https://github.com/norish-recipes/norish), the self-hosted recipe app, with its
 # database, Redis and link-import browser all inside this one add-on. Shown in the HA sidebar
-# by the "Recipes" dashboard (config/dashboards/recipes.yaml).
+# by a "Recipes" dashboard with one full-page frame.
 name: "Norish"
-version: "0.1.0"
+version: "0.1.1"
 slug: "norish"
 description: "Your own Norish recipe app: recipes, meal plans and groceries, backed up nightly to GitHub."
 url: "https://github.com/emerson-flywheel/AI-Intervention/tree/main/norish"
@@ -36,15 +36,15 @@ backup: cold
 # extra_origins: other addresses Norish is opened at (e.g. the HA box's IP), each as
 #   scheme://host:port.
 # backup_repo: the private GitHub repo for the nightly backup, as git@github.com:owner/repo.git.
-#   Empty = no GitHub backup. The add-on log prints the deploy key to add to that repo.
+#   Not set = no GitHub backup. The add-on log prints the deploy key to add to that repo.
 # backup_token: a Norish API token from an admin account (Norish → Settings → API token).
 #   The backup exports every recipe with it.
 # backup_time: when the nightly backup runs, HH:MM in HA's time zone.
+# backup_repo and backup_token have no default: an empty default fails backup_repo's pattern
+# and HA refuses to start the app.
 options:
   url: "http://homeassistant.local:3000"
   extra_origins: []
-  backup_repo: ""
-  backup_token: ""
   backup_time: "03:30"
 schema:
   url: "match(^https?://[^/\\s]+$)"

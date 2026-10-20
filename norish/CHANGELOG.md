@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-10-20
+
+- Fix: the app would not start on a fresh install. The empty default for `backup_repo`
+  failed its own pattern, and Home Assistant refused the options. `backup_repo` and
+  `backup_token` now have no default (leave them unset for no GitHub backup).
+
 ## 0.1.0 — 2026-10-19
 
 - First version. Norish v0.25.1-beta (`norishapp/norish`), with Postgres 17, Redis and
