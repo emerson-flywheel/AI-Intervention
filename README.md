@@ -40,6 +40,12 @@ before every change) until you trust it.
 Full docs: [claude-code/DOCS.md](claude-code/DOCS.md) (also the app's Documentation
 tab). Changes: [claude-code/CHANGELOG.md](claude-code/CHANGELOG.md).
 
+## Also here: Norish
+
+[norish/](norish/README.md) runs the [Norish](https://github.com/norish-recipes/norish)
+recipe app (AGPL-3.0, its published image unchanged) with its database inside one app,
+built on your box when you install it. Setup: [norish/DOCS.md](norish/DOCS.md).
+
 ## Development
 
 `cd claude-code && node --test 'tests/*.test.mjs'` (Node 22+, tmux); the other test
