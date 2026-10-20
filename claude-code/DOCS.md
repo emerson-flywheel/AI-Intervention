@@ -37,7 +37,17 @@ itself; sign in again from there.
 ## The seat (Settings › Seat(s))
 
 The seat is the Claude login this app uses. Its row reads **Seat**, the seat's name, and
-**Signed in** (with the plan and since when) or **Signed out**. Under it:
+**Signed in** (with the plan and since when) or **Signed out**.
+
+**Plan usage** (signed in at claude.ai): a bar for the 5-hour session, one for the week
+across all models, and one for any model with its own weekly limit, each with its percent
+and when it resets. A bar turns amber at 75% and red at 100%. The numbers are the ones
+Claude's own `/usage` shows: when you open Settings and the last reading is over 25
+minutes old, the app opens Claude out of sight, runs `/usage`, and closes it again (about
+15 seconds; no message is sent to a model). **Refresh** reads it again, at most once a
+minute. A login set by the `oauth_token` option has no plan usage to show.
+
+Under it:
 
 - **Name**: any name you like, up to 40 characters (for example *Home*). It is kept in
   the app's own folder. It is also the seat's short id for a remote console, in lower
@@ -45,8 +55,10 @@ The seat is the Claude login this app uses. Its row reads **Seat**, the seat's n
   seat is called `claude`.
 - **Provider**: a list with **Anthropic** (Claude Code) picked. OpenAI and Grok are in
   the list but greyed out ("coming later"): Anthropic is the only one this app runs today.
-- **Model**: *Default* (your plan picks), Opus, Sonnet, Haiku or Fable. A model you chose
-  in the Console with `/model` shows here too.
+- **Model**: *Default* (your plan picks), Opus 5.5, Sonnet 5.5, Haiku 5.5 or Fable 5.1.
+  Each is saved by its full id, so the version shown is the one that runs. A model you
+  chose in the Console with `/model` shows here too, by its version; a short name such
+  as `opus` (saved by version 0.3.4 or earlier) shows as *Opus (newest)*.
 - **Thinking**: *Default*, Low, Medium, High or Extra high (Claude Code's effort level).
   `max` lasts one session only in Claude Code, so it is not offered here.
 - **Permission mode**: *Default* asks before every action (start here). *Accept edits*

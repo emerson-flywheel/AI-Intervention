@@ -13,7 +13,7 @@ import { AGENT_DIR, sandbox } from './helpers.mjs';
 // sandbox and prints its answer as JSON.
 const MODULE = pathToFileURL(join(AGENT_DIR, 'settings.mjs')).href;
 function inBox(sb, code) {
-  const script = `import { PROVIDERS, saveSeatSettings, seatSettings } from ${JSON.stringify(MODULE)};
+  const script = `import { PROVIDERS, modelLabel, saveSeatSettings, seatSettings } from ${JSON.stringify(MODULE)};
     const answer = (() => { ${code} })();
     process.stdout.write(JSON.stringify(answer));`;
   return new Promise((resolve, reject) => {
@@ -35,7 +35,13 @@ describe('seat settings', () => {
     assert.equal(s.program, 'Claude Code');
     assert.equal(s.model, '');
     assert.equal(s.thinking, '');
-    assert.deepEqual(s.models.map((m) => m.id), ['', 'opus', 'sonnet', 'haiku', 'fable']);
+    assert.deepEqual(s.models, [
+      { id: '', label: 'Default (your plan picks)' },
+      { id: 'claude-opus-5-5', label: 'Opus 5.5' },
+      { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
+      { id: 'claude-haiku-5-5', label: 'Haiku 5.5' },
+      { id: 'claude-fable-5-1', label: 'Fable 5.1' },
+    ]);
     assert.deepEqual(s.thinkingLevels.map((m) => m.id), ['', 'low', 'medium', 'high', 'xhigh']);
     assert.equal(existsSync(settingsFile(sb)), false, 'reading writes nothing');
     sb.cleanup();
@@ -83,20 +89,20 @@ describe('seat settings', () => {
   test('save writes model and effort where Claude Code reads them, and keeps every other setting', async () => {
     const sb = sandbox({ seat: null });
     writeFileSync(settingsFile(sb), JSON.stringify({ theme: 'dark', permissions: { allow: ['Read'] } }));
-    const r = await inBox(sb, "return saveSeatSettings({ name: '  Home  ', model: 'opus', thinking: 'high' })");
+    const r = await inBox(sb, "return saveSeatSettings({ name: '  Home  ', model: 'claude-opus-5-5', thinking: 'high' })");
     assert.deepEqual(r, { changed: true });
     assert.deepEqual(readSettings(sb), {
       theme: 'dark',
       permissions: { allow: ['Read'] },
-      model: 'opus',
+      model: 'claude-opus-5-5',
       effortLevel: 'high',
-      modelSettings: { opus: { effortLevel: 'high' } },
+      modelSettings: { 'claude-opus-5-5': { effortLevel: 'high' } },
     });
     const s = await inBox(sb, 'return seatSettings()');
-    assert.deepEqual([s.name, s.model, s.thinking], ['Home', 'opus', 'high']);
+    assert.deepEqual([s.name, s.model, s.thinking], ['Home', 'claude-opus-5-5', 'high']);
     assert.deepEqual(JSON.parse(readFileSync(join(sb.data, 'seat.json'), 'utf8')), { name: 'Home', provider: 'anthropic' });
 
-    const again = await inBox(sb, "return saveSeatSettings({ name: 'Garage', model: 'opus', thinking: 'high' })");
+    const again = await inBox(sb, "return saveSeatSettings({ name: 'Garage', model: 'claude-opus-5-5', thinking: 'high' })");
     assert.deepEqual(again, { changed: false }, 'a new name alone does not restart Claude');
     sb.cleanup();
   });
@@ -157,10 +163,31 @@ describe('seat settings', () => {
     writeFileSync(settingsFile(sb), JSON.stringify({ model: 'claude-opus-4-1-20250805' }));
     const s = await inBox(sb, 'return seatSettings()');
     assert.equal(s.model, 'claude-opus-4-1-20250805');
-    assert.equal(s.models.at(-1).id, 'claude-opus-4-1-20250805');
+    assert.deepEqual(s.models.at(-1), { id: 'claude-opus-4-1-20250805', label: 'Opus 4.1' }, 'named with its version');
     const r = await inBox(sb, "return saveSeatSettings({ name: 'x', model: 'claude-opus-4-1-20250805', thinking: '' })");
     assert.deepEqual(r, { changed: false });
     assert.equal(readSettings(sb).model, 'claude-opus-4-1-20250805');
+    sb.cleanup();
+  });
+
+  test('a model set by short name (opus), by an older version or with /model: named as the newest, kept', async () => {
+    const sb = sandbox({ seat: null });
+    writeFileSync(settingsFile(sb), JSON.stringify({ model: 'opus' }));
+    const s = await inBox(sb, 'return seatSettings()');
+    assert.equal(s.model, 'opus');
+    assert.deepEqual(s.models.at(-1), { id: 'opus', label: 'Opus (newest)' });
+    assert.deepEqual(await inBox(sb, "return saveSeatSettings({ name: '', model: 'opus', thinking: '' })"), { changed: false });
+    assert.equal(readSettings(sb).model, 'opus');
+    sb.cleanup();
+  });
+
+  test('model names: family and version from the id, with the 1M context and dated ids', async () => {
+    const sb = sandbox({ seat: null });
+    const ids = ['claude-opus-5-5[1m]', 'claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001', 'claude-fable-5',
+      'sonnet[1m]', 'some-other-model', 'claude-opus-5-5-5'];
+    const names = await inBox(sb, `return ${JSON.stringify(ids)}.map(modelLabel)`);
+    assert.deepEqual(names, ['Opus 5.5 (1M context)', 'Sonnet 4', 'Haiku 4.5', 'Fable 5', 'Sonnet (newest, 1M context)',
+      'some-other-model', 'claude-opus-5-5-5']);
     sb.cleanup();
   });
 
@@ -172,10 +199,11 @@ describe('seat settings', () => {
     assert.equal(await code("{ name: 5, model: '', thinking: '' }"), 'bad-name');
     assert.equal(await code("{ name: '', model: 'gpt-5', thinking: '' }"), 'bad-model');
     assert.equal(await code("{ name: '', model: '__proto__', thinking: '' }"), 'bad-model');
+    assert.equal(await code("{ name: '', model: 'opus', thinking: '' }"), 'bad-model', 'a short name is kept, not offered');
     assert.equal(await code("{ name: '', model: '', thinking: 'max' }"), 'bad-thinking');
     assert.equal(existsSync(settingsFile(sb)), false, 'a refusal writes nothing');
     writeFileSync(settingsFile(sb), '{ not json');
-    assert.equal(await code("{ name: '', model: 'opus', thinking: '' }"), 'settings-unreadable');
+    assert.equal(await code("{ name: '', model: 'claude-opus-5-5', thinking: '' }"), 'settings-unreadable');
     assert.equal(readFileSync(settingsFile(sb), 'utf8'), '{ not json', 'an unreadable file is left as it was');
     const s = await inBox(sb, 'return seatSettings()');
     assert.deepEqual([s.model, s.thinking, s.unreadable], ['', '', true]);

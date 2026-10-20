@@ -5,6 +5,10 @@
 #     $FAKE_EXIT (0); anything else prints "Invalid code" and asks again.
 #     FAKE_LINK replaces the link; FAKE_TOKEN="" signs in without writing a token.
 #  claude [args]                  prints its args, then echoes lines until "quit".
+#     FAKE_TRUST=1 first asks the folder-trust question and waits for Enter. "/usage" writes
+#     a usage reading into $CLAUDE_CONFIG_DIR/.claude.json as Claude Code caches it (the
+#     limits in $FAKE_USAGE, else a 5-hour, a weekly and a Fable one), keeping its other
+#     keys; FAKE_USAGE_STALE=1 leaves the file as it was.
 if [ "$1" = auth ]; then
     link="${FAKE_LINK-https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload&code_challenge=Zm9vYmFyYmF6cXV4cXV1eGNvcmdlZ3JhdWx0Z2FycGx5&code_challenge_method=S256&state=c3RhdGVzdGF0ZXN0YXRlc3RhdGVzdGF0ZQ}"
     [ -n "${FAKE_LINK_DELAY:-}" ] && sleep "${FAKE_LINK_DELAY}"
@@ -30,7 +34,30 @@ if [ "$1" = auth ]; then
 fi
 echo "fake-claude args: $*"
 echo "fake-claude oauth-env: ${CLAUDE_CODE_OAUTH_TOKEN:+set}"
+if [ "${FAKE_TRUST:-}" = 1 ]; then
+    echo "Do you trust this folder?"
+    echo " ❯ 1. Yes, I trust this folder"
+    echo "   2. No, exit"
+    IFS= read -r _ || exit 1
+    # The real one redraws its screen once the question is answered.
+    clear
+fi
 while IFS= read -r -p "> " line; do
     echo "you said: ${line}"
+    if [ "${line}" = /usage ] && [ "${FAKE_USAGE_STALE:-}" != 1 ]; then
+        node -e '
+          const fs = require("fs");
+          const file = process.env.CLAUDE_CONFIG_DIR + "/.claude.json";
+          let j = {};
+          try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
+          const limits = process.env.FAKE_USAGE ? JSON.parse(process.env.FAKE_USAGE) : [
+            { kind: "session", percent: 42, resets_at: "2026-10-20T19:10:00.123456+00:00" },
+            { kind: "weekly_all", percent: 81, resets_at: "2026-10-22T13:00:00.654321+00:00" },
+            { kind: "weekly_scoped", percent: 12, resets_at: "2026-10-22T13:00:00+00:00", scope: { model: { display_name: "Fable" } } },
+          ];
+          j.cachedUsageUtilization = { fetchedAtMs: Date.now(), utilization: { limits } };
+          fs.writeFileSync(file, JSON.stringify(j));'
+        echo "Usage shown"
+    fi
     [ "${line}" = quit ] && exit 0
 done

@@ -35,7 +35,8 @@ const freePort = () =>
 async function addonServer(sb, env) {
   const port = await freePort();
   const child = spawn(process.execPath, [join(AGENT_DIR, 'server.mjs')], {
-    env: { ...sb.env, ADDON_PORT: String(port), ADDON_INGRESS_PEER: '127.0.0.1', ...env },
+    env: { ...sb.env, ADDON_PORT: String(port), ADDON_INGRESS_PEER: '127.0.0.1', ADDON_USAGE_SETTLE_MS: '400',
+      ADDON_USAGE_POLL_MS: '200', ...env },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   await new Promise((r) => child.stdout.on('data', (d) => String(d).includes('Page on') && r()));
@@ -294,19 +295,22 @@ describe('Seat sign-in in a browser', { skip }, () => {
       assert.equal(await frame.inputValue('#mode'), '');
       assert.deepEqual(await frame.$$eval('#mode option', (os) => os.map((o) => o.value)), ['', 'acceptEdits', 'plan']);
 
+      assert.deepEqual(await frame.$$eval('#model option', (os) => os.map((o) => o.textContent)),
+        ['Default (your plan picks)', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5', 'Fable 5.1']);
       await frame.fill('#name', 'Kitchen');
-      await frame.selectOption('#model', 'sonnet');
+      await frame.selectOption('#model', 'claude-sonnet-5-5');
       await frame.selectOption('#thinking', 'high');
       await frame.selectOption('#mode', 'acceptEdits');
       await frame.click('#save');
       await frame.waitForSelector('text=Saved. Claude in the Console was started again with these settings; the conversation is kept.');
       // The row takes the new name from the refresh that follows the save.
       await frame.waitForSelector('#seat-name:text-is("Kitchen")');
-      assert.equal(await frame.inputValue('#model'), 'sonnet');
+      assert.equal(await frame.inputValue('#model'), 'claude-sonnet-5-5');
       assert.equal(await frame.inputValue('#thinking'), 'high');
       assert.equal(await frame.inputValue('#mode'), 'acceptEdits');
       const saved = JSON.parse(readFileSync(settingsFile, 'utf8'));
-      assert.deepEqual([saved.theme, saved.model, saved.effortLevel, saved.permissions?.defaultMode], ['dark', 'sonnet', 'high', 'acceptEdits']);
+      assert.deepEqual([saved.theme, saved.model, saved.effortLevel, saved.permissions?.defaultMode],
+        ['dark', 'claude-sonnet-5-5', 'high', 'acceptEdits']);
       await shot(page, frame, 'settings-saved-1280-light');
 
       // An edit not saved yet survives a refresh of the page's state.
@@ -333,6 +337,60 @@ describe('Seat sign-in in a browser', { skip }, () => {
       writeFileSync(creds, '{"claudeAiOauth":{"accessToken":""}}');
       rmSync(settingsFile, { force: true });
       rmSync(join(sb.data, 'seat.json'), { force: true });
+    }
+  });
+
+  test('Settings: plan usage, read from Claude\'s /usage when Settings opens, as bars with when each resets', async () => {
+    const creds = join(sb.data, 'claude', '.credentials.json');
+    const cache = join(sb.data, 'claude', '.claude.json');
+    writeFileSync(creds, '{"claudeAiOauth":{"accessToken":"fake-x","refreshToken":"r","subscriptionType":"max"}}');
+    rmSync(cache, { force: true });
+    // A fresh server: the earlier tests' readings would make this one's first ask "too soon".
+    addon.child.kill();
+    addon = await addonServer(sb, {});
+    addonPort = addon.port;
+    const contexts = [];
+    try {
+      const { context, page, frame } = await open();
+      contexts.push(context);
+      assert.equal(await frame.isVisible('#usage'), false, 'nothing on the Console tab');
+      await frame.click('#tab-settings');
+      await frame.waitForSelector('#usage:not([hidden])');
+      await frame.waitForSelector('#usage-bars .bar >> nth=2', { timeout: 15000 });
+      const bars = await frame.$$eval('#usage-bars .bar', (bs) =>
+        bs.map((b) => [b.children[0].textContent, b.querySelector('.pct').textContent, b.querySelector('.fill').className]));
+      assert.deepEqual(bars, [
+        ['5-hour session', '42%', 'fill'],
+        ['Week, all models', '81%', 'fill high'],
+        ['Week, Fable', '12%', 'fill'],
+      ]);
+      assert.match(await frame.textContent('#usage-bars .bar .reset'), /^Resets /);
+      assert.equal(await frame.textContent('#usage-at'), 'read just now');
+      assert.equal(await frame.isVisible('#usage-note'), false);
+      await shot(page, frame, 'settings-usage-1280-light');
+      // Refresh within a minute of the last reading is answered "too soon" and keeps the bars.
+      await frame.click('#usage-refresh');
+      await frame.waitForTimeout(500);
+      assert.equal(await frame.$$eval('#usage-bars .bar', (bs) => bs.length), 3);
+
+      const dark = await open({ width: 360, scheme: 'dark' });
+      contexts.push(dark.context);
+      await dark.frame.click('#tab-settings');
+      await dark.frame.waitForSelector('#usage-bars .bar >> nth=2');
+      await shot(dark.page, dark.frame, 'settings-usage-360-dark');
+
+      // The oauth_token option: no bars, and why.
+      writeFileSync(join(sb.data, 'options.json'), JSON.stringify({ oauth_token: 'fake-option-token-value' }));
+      const opt = await open({ width: 360 });
+      contexts.push(opt.context);
+      await opt.frame.click('#tab-settings');
+      await opt.frame.waitForSelector('text=Plan usage is not shown for a login set by the oauth_token option.');
+      assert.equal(await opt.frame.$$eval('#usage-bars .bar', (bs) => bs.length), 0);
+    } finally {
+      for (const c of contexts) await c.close().catch(() => {});
+      writeFileSync(join(sb.data, 'options.json'), '{}');
+      writeFileSync(creds, '{"claudeAiOauth":{"accessToken":""}}');
+      rmSync(cache, { force: true });
     }
   });
 

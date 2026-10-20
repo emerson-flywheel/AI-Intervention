@@ -37,8 +37,9 @@ export function sandbox({ options = {}, herdr = null, seat = 'home' } = {}) {
     herdr: () => JSON.parse(readFileSync(state, 'utf8')),
     setHerdr: (s) => writeFileSync(state, JSON.stringify(s)),
     cleanup() {
-      spawn('tmux', ['-L', 'seat-login', 'kill-server'], { env, stdio: 'ignore' }).on('exit', () =>
-        rmSync(root, { recursive: true, force: true }));
+      spawn('tmux', ['-L', 'usage', 'kill-server'], { env, stdio: 'ignore' }).on('exit', () =>
+        spawn('tmux', ['-L', 'seat-login', 'kill-server'], { env, stdio: 'ignore' }).on('exit', () =>
+          rmSync(root, { recursive: true, force: true })));
     },
   };
 }

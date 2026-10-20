@@ -12,12 +12,18 @@ import { readRun, relaunchConsole, seatName, writeRun } from './lib.mjs';
 import { LookError, lookSettings, saveLook, writeConfigs } from './look.mjs';
 import { LoginError, cancelLogin, loginWaiting, seatLogin, startLogin, submitCode, withLoginLock } from './seat.mjs';
 import { SettingsError, saveSeatSettings, seatSettings } from './settings.mjs';
+import { refreshUsage, usageView } from './usage.mjs';
 
 const env = process.env;
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(env.ADDON_PORT || 7681);
 const PEER = env.ADDON_INGRESS_PEER || '172.30.32.2';
 const TTYD = { host: '127.0.0.1', port: Number(env.ADDON_TTYD_PORT || 7682) };
+// The usage probe's waits; the tests shorten them.
+const USAGE_TIMING = {
+  ...(env.ADDON_USAGE_SETTLE_MS && { settleMs: Number(env.ADDON_USAGE_SETTLE_MS) }),
+  ...(env.ADDON_USAGE_POLL_MS && { pollMs: Number(env.ADDON_USAGE_POLL_MS) }),
+};
 
 const FILES = {
   '/': ['page.html', 'text/html; charset=utf-8'],
@@ -79,6 +85,7 @@ async function state() {
     settings: seatSettings(),
     console: lookSettings(),
     remote: remoteStatus(),
+    usage: usageView(),
     // The Console client's process (run.sh writes it): the page reloads the Console once it changes.
     view: readRun('ttyd.pid'),
   };
@@ -116,6 +123,12 @@ async function api(req, res, path) {
         return changed ? relaunchConsole() : 'none';
       });
       return send(res, 200, { saved: true, relaunched });
+    }
+    // Read the plan usage again: the page asks when its reading is old, force is a press of
+    // Refresh. The probe runs on after the answer; api/state shows it.
+    if (path === '/api/usage/refresh') {
+      const body = await readJson(req);
+      return send(res, 200, { usage: refreshUsage({ force: body?.force === true, ...USAGE_TIMING }) });
     }
     // A new look: herdr's configs are written for it and run.sh starts ttyd again (within
     // 5 s), so the Console's client picks both up. Claude and its conversation keep running.

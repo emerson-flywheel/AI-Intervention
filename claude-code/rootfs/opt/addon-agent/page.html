@@ -60,6 +60,18 @@
   .seat-head .name { font-size: 16px; overflow-wrap: anywhere; }
   .seat-head .state { margin-left: auto; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; justify-content: flex-end; }
   .seat-head .meta { color: var(--muted); font-size: 13px; }
+  .usage { margin: 0 0 14px; padding: 0 0 12px; border-bottom: 1px solid var(--line); }
+  .usage-head { display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; margin: 0 0 8px; }
+  .usage-head .what { font-weight: 500; }
+  .usage-head button { margin-left: auto; font-size: 13px; }
+  .bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; margin: 0 0 10px; }
+  .bar:last-child { margin-bottom: 0; }
+  .bar .pct { font-weight: 500; font-variant-numeric: tabular-nums; }
+  .bar .track { grid-column: 1 / -1; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 999px; background: var(--primary); }
+  .bar .fill.high { background: var(--warn); }
+  .bar .fill.full { background: var(--err); }
+  .bar .reset { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
   dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; margin: 0 0 12px; align-items: center; }
   dt { color: var(--muted); }
   dd { margin: 0; overflow-wrap: anywhere; }
@@ -120,6 +132,15 @@
         <div class="seat-head" id="seat-head">
           <span class="label">Seat</span><span class="name" id="seat-name"></span>
           <span class="state"><span class="chip" id="seat-chip"></span><span class="meta" id="seat-meta"></span></span>
+        </div>
+
+        <div class="usage" id="usage" hidden>
+          <div class="usage-head">
+            <span class="what">Plan usage</span><span class="sm" id="usage-at"></span>
+            <button class="text" id="usage-refresh">Refresh</button>
+          </div>
+          <div id="usage-bars"></div>
+          <p class="sm" id="usage-note" hidden></p>
         </div>
 
         <div id="v-signed-out" hidden>

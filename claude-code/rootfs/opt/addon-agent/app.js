@@ -51,6 +51,17 @@ const REMOTE = {
   'refused-from': 'Off: remote_allow_from must name the addresses the key may log in from.',
   on: 'On',
 };
+const USAGE_NOTE = {
+  'by-option': 'Plan usage is not shown for a login set by the oauth_token option.',
+  'login-screen': 'Claude asked to sign in, so the usage was not read. Sign in again below.',
+  trust: 'Claude asked about its folder and the answer did not take, so the usage was not read. Press Refresh.',
+  'not-fresh': 'Claude did not read it again this time; this is the last reading.',
+  'no-reading': 'Claude showed no usage for this login.',
+  'no-start': 'Claude could not be started to read the usage. Try again in a minute.',
+  failed: 'The usage could not be read. Try again in a minute.',
+};
+// The page asks for a new reading once the last is this old, as the app's server does.
+const USAGE_EVERY_MS = 25 * 60e3;
 const DONE = {
   now: 'Signed in. Claude in the Console was started again on the new login.',
   'after-shell': 'Signed in. Claude starts on the new login when you leave the shell in the Console.',
@@ -164,6 +175,83 @@ function remote(r = {}) {
   $('remote-host').textContent = r.hostKey || 'not made yet';
 }
 
+// Plan usage: a bar per limit (the 5-hour session, the week, a model's own week), each with
+// its percent and when it resets, read from Claude's /usage by the app's server.
+function bar(what, b) {
+  const row = document.createElement('div');
+  row.className = 'bar';
+  const name = document.createElement('span');
+  name.textContent = what;
+  const pct = document.createElement('span');
+  pct.className = 'pct';
+  const n = Math.round(b.percent);
+  pct.textContent = `${n}%`;
+  const track = document.createElement('div');
+  track.className = 'track';
+  track.setAttribute('role', 'meter');
+  track.setAttribute('aria-label', what);
+  track.setAttribute('aria-valuemin', '0');
+  track.setAttribute('aria-valuemax', '100');
+  track.setAttribute('aria-valuenow', String(n));
+  const fill = document.createElement('div');
+  fill.className = `fill${n >= 100 ? ' full' : n >= 75 ? ' high' : ''}`;
+  fill.style.width = `${Math.min(100, Math.max(0, b.percent))}%`;
+  track.append(fill);
+  row.append(name, pct, track);
+  if (b.resetsAt) {
+    const reset = document.createElement('span');
+    reset.className = 'reset';
+    const at = { weekday: 'short', hour: 'numeric', minute: '2-digit' };
+    reset.textContent = `Resets ${new Date(b.resetsAt).toLocaleString(undefined, at)}`;
+    row.append(reset);
+  }
+  return row;
+}
+
+function ago(ms) {
+  const min = Math.round((Date.now() - ms) / 60e3);
+  if (min < 1) return 'read just now';
+  if (min < 60) return `read ${min} min ago`;
+  return `read ${new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+}
+
+let usageAskedAt = 0;
+let usageTimer = null;
+function usage(u = {}, signedIn = false) {
+  $('usage').hidden = !signedIn || !(u.show || u.why === 'by-option');
+  const r = u.reading;
+  const rows = [];
+  if (u.show && r) {
+    if (r.session) rows.push(bar('5-hour session', r.session));
+    if (r.week) rows.push(bar('Week, all models', r.week));
+    for (const m of r.models || []) rows.push(bar(`Week, ${m.model}`, m));
+  }
+  $('usage-bars').replaceChildren(...rows);
+  $('usage-at').textContent = u.probing ? 'reading…' : r?.fetchedAtMs ? ago(r.fetchedAtMs) : '';
+  $('usage-refresh').hidden = !u.show;
+  $('usage-refresh').disabled = Boolean(u.probing);
+  let note = u.show ? null : USAGE_NOTE[u.why] || null;
+  if (u.show && u.error) note = USAGE_NOTE[u.error] || USAGE_NOTE.failed;
+  else if (u.show && !r) note = u.probing ? 'Reading the plan usage from Claude (about 15 seconds)…' : 'Not read yet.';
+  $('usage-note').textContent = note || '';
+  $('usage-note').hidden = !note;
+  // While a reading is under way, look again shortly; only while Settings is open.
+  clearTimeout(usageTimer);
+  if (u.probing && !$('settings').hidden) usageTimer = setTimeout(refresh, 2000);
+  // An old reading (or none): ask for a new one when Settings is open, at most once a minute.
+  const old = !r?.fetchedAtMs || Date.now() - r.fetchedAtMs > USAGE_EVERY_MS;
+  if (u.show && !u.probing && old && !$('settings').hidden && Date.now() - usageAskedAt > 60e3) {
+    usageAskedAt = Date.now();
+    readUsage(false);
+  }
+}
+
+async function readUsage(force) {
+  $('usage-refresh').disabled = true;
+  await post('api/usage/refresh', { force });
+  await refresh();
+}
+
 function render(s) {
   chip(s.signedIn);
   seatHead(s);
@@ -190,6 +278,7 @@ async function refresh() {
     view = s.view;
     look(s.console);
     remote(s.remote);
+    usage(s.usage, s.signedIn);
     if (!$('v-code').hidden || !$('v-done').hidden) {
       chip(s.signedIn);
       seatHead(s);
@@ -351,6 +440,7 @@ $('name').addEventListener('keydown', (e) => {
 });
 $('save').addEventListener('click', save);
 $('save-look').addEventListener('click', saveLook);
+$('usage-refresh').addEventListener('click', () => readUsage(true));
 $('start').addEventListener('click', startSignIn);
 $('again').addEventListener('click', startSignIn);
 $('fresh').addEventListener('click', startSignIn);

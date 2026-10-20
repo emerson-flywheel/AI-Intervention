@@ -1,7 +1,7 @@
 // The page server: ingress-only, relative URLs, the sign-in API (with the fake claude in
 // a real tmux), the signed-in rule, and the console/ proxy (HTTP and websocket) to ttyd.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -200,8 +200,9 @@ describe('page server', () => {
 
   test('sign-in through the API: link, wrong code, right code; never the token or code back', async () => {
     let s = JSON.parse((await req(srv.port, '/api/state')).body);
-    const { settings, console: look, remote, view, ...rest } = s;
+    const { settings, console: look, remote, view, usage, ...rest } = s;
     assert.deepEqual(rest, { seat: 'home', signedIn: false, lapsed: false, plan: null, since: null, byOption: false, login: 'none' });
+    assert.deepEqual(usage, { show: false, why: 'signed-out', reading: null, probing: false, error: null });
     assert.equal(settings.provider, 'anthropic');
 
     const start = await post(srv.port, '/api/login/start');
@@ -240,15 +241,15 @@ describe('page server', () => {
     assert.deepEqual([bad.status, JSON.parse(bad.body)], [400, { error: 'bad-model' }]);
     assert.equal(existsSync(settingsFile), false);
 
-    const ok = await post(srv.port, '/api/seat/settings', { name: 'Home', model: 'sonnet', thinking: 'medium' });
+    const ok = await post(srv.port, '/api/seat/settings', { name: 'Home', model: 'claude-sonnet-5-5', thinking: 'medium' });
     assert.deepEqual([ok.status, JSON.parse(ok.body)], [200, { saved: true, relaunched: 'now' }]);
     assert.ok(existsSync(relaunch), 'Claude in the Console is started again on the new model');
     rmSync(relaunch);
     const s = JSON.parse((await req(srv.port, '/api/state')).body).settings;
-    assert.deepEqual([s.name, s.providerLabel, s.model, s.thinking], ['Home', 'Anthropic', 'sonnet', 'medium']);
-    assert.equal(JSON.parse(readFileSync(settingsFile, 'utf8')).model, 'sonnet');
+    assert.deepEqual([s.name, s.providerLabel, s.model, s.thinking], ['Home', 'Anthropic', 'claude-sonnet-5-5', 'medium']);
+    assert.equal(JSON.parse(readFileSync(settingsFile, 'utf8')).model, 'claude-sonnet-5-5');
 
-    const rename = await post(srv.port, '/api/seat/settings', { name: 'Garage', model: 'sonnet', thinking: 'medium' });
+    const rename = await post(srv.port, '/api/seat/settings', { name: 'Garage', model: 'claude-sonnet-5-5', thinking: 'medium' });
     assert.deepEqual([rename.status, JSON.parse(rename.body)], [200, { saved: true, relaunched: 'none' }]);
     assert.equal(existsSync(relaunch), false, 'a new name alone leaves Claude running');
     rmSync(settingsFile, { force: true });
@@ -324,6 +325,31 @@ describe('page server', () => {
       assert.equal(JSON.parse((await req(evil.port, '/api/state')).body).login, 'none');
     } finally {
       evil.child.kill();
+    }
+  });
+
+  test('api/usage/refresh: needs the page header; the probe\'s reading lands in api/state; a press within a minute waits', async () => {
+    const plain = await req(srv.port, '/api/usage/refresh', { method: 'POST', body: '{}',
+      headers: { 'Content-Type': 'application/json' } });
+    assert.equal(plain.status, 403);
+    const fast = await startServer(sb, { ADDON_TTYD_PORT: String(ttydPort), ADDON_USAGE_SETTLE_MS: '400', ADDON_USAGE_POLL_MS: '200' });
+    try {
+      assert.equal(JSON.parse((await req(fast.port, '/api/state')).body).usage.show, true, 'signed in by the sign-in test');
+      const r = await post(fast.port, '/api/usage/refresh', {});
+      assert.deepEqual([r.status, JSON.parse(r.body)], [200, { usage: 'started' }]);
+      let u = null;
+      for (let i = 0; i < 60 && (!u || u.probing); i++) {
+        await new Promise((ok) => setTimeout(ok, 100));
+        u = JSON.parse((await req(fast.port, '/api/state')).body).usage;
+      }
+      assert.deepEqual([u.probing, u.error, u.reading.session.percent, u.reading.week.percent], [false, null, 42, 81]);
+      assert.deepEqual(JSON.parse((await post(fast.port, '/api/usage/refresh', {})).body), { usage: 'fresh' });
+      assert.deepEqual(JSON.parse((await post(fast.port, '/api/usage/refresh', { force: true })).body), { usage: 'too-soon' });
+      assert.ok(!fast.log().includes('tok-0123456789abcdef'));
+    } finally {
+      fast.child.kill();
+      spawnSync('tmux', ['-L', 'usage', 'kill-server'], { env: sb.env });
+      rmSync(join(sb.data, 'claude', '.claude.json'), { force: true });
     }
   });
 });

@@ -1,7 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.3.5 — 2026-10-19
 
+- **Model versions** on the Settings tab: Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1,
+  saved by their full ids, so the version shown is the one that runs. A model set with
+  `/model` shows by its version too; a short name saved before (`opus`) is kept and
+  shows as *Opus (newest)*.
+- **Plan usage** on the Settings tab: bars for the 5-hour session, the week and any
+  model's own week, with percent and reset time, the same numbers as Claude's `/usage`.
+  Read when Settings opens and the last reading is 25 minutes old, or on Refresh.
 - The remote console's ssh server no longer logs "Unsupported option PrintLastLog" at
   start (the app's Alpine build has no lastlog, so the line did nothing).
 

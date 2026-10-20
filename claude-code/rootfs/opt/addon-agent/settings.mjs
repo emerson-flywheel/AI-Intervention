@@ -54,12 +54,14 @@ const claude = {
     else delete out.modelSettings;
     return out;
   },
+  // Full model ids, so the version shown is the one that runs whatever Claude Code the image
+  // has. A short name (opus) saved by 0.3.4 or by /model still shows, as the newest.
   models: [
     { id: '', label: 'Default (your plan picks)' },
-    { id: 'opus', label: 'Opus' },
-    { id: 'sonnet', label: 'Sonnet' },
-    { id: 'haiku', label: 'Haiku' },
-    { id: 'fable', label: 'Fable' },
+    { id: 'claude-opus-5-5', label: 'Opus 5.5' },
+    { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
+    { id: 'claude-haiku-5-5', label: 'Haiku 5.5' },
+    { id: 'claude-fable-5-1', label: 'Fable 5.1' },
   ],
   // "max" is left out: Claude Code keeps it for one session only and never saves it.
   thinking: [
@@ -96,6 +98,20 @@ export const PROVIDERS = {
   openai: { label: 'OpenAI', program: null, runs: false, settings: null },
   grok: { label: 'Grok', program: null, runs: false, settings: null },
 };
+
+// A model id as a person reads it: claude-opus-5-5 is "Opus 5.5", claude-haiku-4-5-20251001
+// is "Haiku 4.5", a [1m] ending adds "(1M context)", and a short name is the newest of its
+// family. Anything else is shown as it is.
+const FAMILIES = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' };
+const FULL_ID_RE = /^claude-(opus|sonnet|haiku|fable)-(\d{1,2})(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/;
+const SHORT_ID_RE = /^(opus|sonnet|haiku|fable)(\[1m\])?$/;
+export function modelLabel(id) {
+  const full = FULL_ID_RE.exec(id);
+  if (full) return `${FAMILIES[full[1]]} ${full[2]}${full[3] ? `.${full[3]}` : ''}${full[4] ? ' (1M context)' : ''}`;
+  const short = SHORT_ID_RE.exec(id);
+  if (short) return `${FAMILIES[short[1]]} (newest${short[2] ? ', 1M context' : ''})`;
+  return id;
+}
 
 const profileFile = () => join(DATA, 'seat.json');
 
@@ -138,7 +154,7 @@ export function seatSettings() {
   const unreadable = Boolean(file.unreadable) || !isObject(file.value);
   const now = p.settings.read(unreadable ? {} : file.value);
   const models = p.settings.models.map((m) => ({ ...m }));
-  if (now.model && !models.some((m) => m.id === now.model)) models.push({ id: now.model, label: now.model });
+  if (now.model && !models.some((m) => m.id === now.model)) models.push({ id: now.model, label: modelLabel(now.model) });
   return {
     name,
     provider,
