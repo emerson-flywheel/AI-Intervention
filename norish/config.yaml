@@ -1,0 +1,55 @@
+---
+# Home Assistant add-on: Norish
+# Norish (https://github.com/norish-recipes/norish), the self-hosted recipe app, with its
+# database, Redis and link-import browser all inside this one add-on. Shown in the HA sidebar
+# by the "Recipes" dashboard (config/dashboards/recipes.yaml).
+name: "Norish"
+version: "0.1.0"
+slug: "norish"
+description: "Your own Norish recipe app: recipes, meal plans and groceries, backed up nightly to GitHub."
+url: "https://github.com/emerson-flywheel/AI-Intervention/tree/main/norish"
+
+# Their prod HA is bare-metal generic-x86-64 -> amd64. The link-import browser is
+# copied in as an amd64 build, so aarch64 is not offered.
+arch:
+  - amd64
+
+boot: auto
+startup: application
+
+# Norish is served on its own port (not ingress): it is a Next.js app that cannot run under
+# ingress's /api/hassio_ingress/<token>/ prefix. The Recipes dashboard shows this port in an
+# iframe; nginx in front of Norish drops its X-Frame-Options: DENY so the iframe may load.
+ports:
+  3000/tcp: 3000
+ports_description:
+  3000/tcp: "Norish web app (the Recipes sidebar tab opens this)"
+webui: "http://[HOST]:[PORT:3000]"
+watchdog: "tcp://[HOST]:[PORT:3000]"
+
+# Postgres lives in /data: a cold backup stops the add-on so the copy is consistent.
+backup: cold
+
+# Options ----------------------------------------------------------------------
+# url: the address you open Norish at, as the browser sees it (Norish's AUTH_URL). The
+#   Recipes dashboard's iframe must use this same address, or sign-in fails.
+# extra_origins: other addresses Norish is opened at (e.g. the HA box's IP), each as
+#   scheme://host:port.
+# backup_repo: the private GitHub repo for the nightly backup, as git@github.com:owner/repo.git.
+#   Empty = no GitHub backup. The add-on log prints the deploy key to add to that repo.
+# backup_token: a Norish API token from an admin account (Norish → Settings → API token).
+#   The backup exports every recipe with it.
+# backup_time: when the nightly backup runs, HH:MM in HA's time zone.
+options:
+  url: "http://homeassistant.local:3000"
+  extra_origins: []
+  backup_repo: ""
+  backup_token: ""
+  backup_time: "03:30"
+schema:
+  url: "match(^https?://[^/\\s]+$)"
+  extra_origins:
+    - "match(^https?://[^/\\s]+$)"
+  backup_repo: "match(^git@github\\.com:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\.git$)?"
+  backup_token: "password?"
+  backup_time: "match(^([01][0-9]|2[0-3]):[0-5][0-9]$)?"
