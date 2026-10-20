@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 — 2026-10-20
+
+- Fix: Postgres would not start on Home Assistant ("can't create /data/postgres.log:
+  Permission denied"). pg_ctl opens its log as the postgres user, and `/data` belongs to
+  root. The log is now in `/data/pglog/`, owned by postgres, and a failed start prints
+  the end of it to the app log.
+
 ## 0.1.1 — 2026-10-20
 
 - Fix: the app would not start on a fresh install. The empty default for `backup_repo`

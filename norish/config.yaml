@@ -4,7 +4,7 @@
 # database, Redis and link-import browser all inside this one add-on. Shown in the HA sidebar
 # by a "Recipes" dashboard with one full-page frame.
 name: "Norish"
-version: "0.1.1"
+version: "0.1.2"
 slug: "norish"
 description: "Your own Norish recipe app: recipes, meal plans and groceries, backed up nightly to GitHub."
 url: "https://github.com/emerson-flywheel/AI-Intervention/tree/main/norish"

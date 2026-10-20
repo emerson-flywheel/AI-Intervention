@@ -66,8 +66,15 @@ if [ ! -s "${PGDATA}/PG_VERSION" ]; then
         --auth-local=trust --auth-host=scram-sha-256 >/dev/null
     rm -f /run/postgresql/pw
 fi
-su-exec postgres pg_ctl -D "${PGDATA}" -w -l /data/postgres.log \
-    -o "-c listen_addresses=127.0.0.1 -c unix_socket_directories=/run/postgresql" start >/dev/null
+# pg_ctl opens its log as postgres, and /data belongs to root: the log gets its own folder.
+mkdir -p /data/pglog
+chown postgres:postgres /data/pglog
+if ! su-exec postgres pg_ctl -D "${PGDATA}" -w -l /data/pglog/postgres.log \
+        -o "-c listen_addresses=127.0.0.1 -c unix_socket_directories=/run/postgresql" start >/dev/null; then
+    log "Postgres did not start. Its log:"
+    tail -n 20 /data/pglog/postgres.log >&2 || true
+    exit 1
+fi
 if ! su-exec postgres psql -h /run/postgresql -U postgres -tAc \
         "SELECT 1 FROM pg_database WHERE datname='norish'" | grep -q 1; then
     su-exec postgres createdb -h /run/postgresql -U postgres norish
