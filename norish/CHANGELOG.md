@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 — 2026-10-21
+
+- Home Assistant ingress now reaches Norish's API (`/api/v1`, which still needs a Norish
+  API key), so a tool signed in to HA can add recipes without port 3000. Only the API is
+  served there: Norish's pages need the site root, so "Open Web UI" now shows a note
+  pointing to the Recipes tab. Use the Recipes tab, or port 3000, to open Norish.
+
 ## 0.1.2 — 2026-10-20
 
 - Fix: Postgres would not start on Home Assistant ("can't create /data/postgres.log:
