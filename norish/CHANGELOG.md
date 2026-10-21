@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0 — 2026-10-21
+
+- Norish from anywhere: with `tunnel_token` and `public_url` set, a Cloudflare Tunnel
+  (cloudflared 2026.9.3, checksum-checked) runs inside the app and carries Norish only.
+  Cloudflare's email code goes in front of it (set up in Cloudflare; see the docs).
+- The tunnel comes in on its own door, 127.0.0.1:3002, which tells Norish the browser
+  used https (so sign-in stays on the https address) and keeps Norish's
+  `X-Frame-Options: DENY`, so no other site can frame it from the internet. Port 3000,
+  ingress and the Recipes tab are unchanged.
+- The tunnel's token is passed in the environment, not on the command line. If the tunnel
+  stops, Norish keeps running and the tunnel is retried every minute.
+- `public_url` and `tunnel_token` have no default, so leaving them out never stops the app
+  from starting.
+
 ## 0.1.4 — 2026-10-21
 
 - Ingress also passes `/api/trpc` (still needs a Norish API key). Norish's `/api/v1` can add
