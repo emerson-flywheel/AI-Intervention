@@ -7,6 +7,8 @@
 #   obscura      127.0.0.1:9222   link-import browser, chrooted into /opt/obscura (may stop alone)
 #   norish       127.0.0.1:3001   the app, as its own user (1000), uploads in /data/uploads
 #   nginx        :3000            the port HA and the browser use
+#                127.0.0.1:3002   the tunnel's door (keeps Norish's frame guard)
+#   cloudflared                   Cloudflare Tunnel to :3002, only with tunnel_token (may stop alone)
 #   backup loop                   once after start, then nightly at backup_time
 set -euo pipefail
 
@@ -18,7 +20,9 @@ log() { echo "[norish] $*"; }
 
 opt() { jq -r "$1" "${OPTIONS}"; }
 URL="$(opt '.url // "http://homeassistant.local:3000"')"
-ORIGINS="$(opt '(.extra_origins // []) | join(",")')"
+ORIGINS="$(opt '(.extra_origins // []) + [.public_url // "" | select(. != "")] | join(",")')"
+PUBLIC_URL="$(opt '.public_url // ""')"
+TUNNEL_TOKEN="$(opt '.tunnel_token // ""')"
 
 # --- Secrets, made once and kept in /data (so in HA backups, never in GitHub) ---
 mkdir -p "${SECRETS}"
@@ -47,6 +51,10 @@ stop_all() {
     if [ -n "${OBSCURA_PID:-}" ]; then
         kill "${OBSCURA_PID}" 2>/dev/null || true
         pkill -x obscura 2>/dev/null || true
+    fi
+    if [ -n "${TUNNEL_PID:-}" ]; then
+        kill "${TUNNEL_PID}" 2>/dev/null || true
+        pkill -x cloudflared 2>/dev/null || true
     fi
     su-exec postgres pg_ctl -D "${PGDATA}" -m fast -w stop >/dev/null 2>&1 || true
 }
@@ -124,6 +132,24 @@ log "Norish starting for ${URL}."
 mkdir -p /run/nginx
 nginx -c "${ADDON}/nginx.conf" &
 PIDS+=($!)
+
+# --- Cloudflare Tunnel (from anywhere, only when a token is set) ---
+# Not one of the processes whose exit stops the add-on: at home Norish works without it.
+# The token goes in the environment, so it is not in the process list.
+if [ -n "${TUNNEL_TOKEN}" ]; then
+    (
+        while true; do
+            TUNNEL_TOKEN="${TUNNEL_TOKEN}" cloudflared --no-autoupdate tunnel run ||
+                log "The Cloudflare tunnel stopped ($?); ${PUBLIC_URL:-the public address} is down. Retrying in 60 s."
+            sleep 60
+        done
+    ) &
+    TUNNEL_PID=$!
+    log "Cloudflare tunnel starting for ${PUBLIC_URL:-(public_url not set)}."
+    [ -n "${PUBLIC_URL}" ] || log "Set public_url to the tunnel's address, or sign-in from there is refused."
+else
+    log "No tunnel_token: Norish is reachable at home only."
+fi
 
 # --- Backup loop ---
 "${ADDON}/backup.sh" loop &

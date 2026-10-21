@@ -39,6 +39,38 @@ Assistant's own backups of this add-on, together with the add-on's keys.
 the top of the zip), rename it to `backup.norishrecipes`, and import it in Norish →
 Settings → Import. A recipe with the same name or link is overwritten by the imported one.
 
+## From anywhere (Cloudflare)
+
+Norish can also be opened from anywhere at your own https address, e.g.
+`https://recipes.example.com`, through a Cloudflare Tunnel that runs inside this app.
+No port is opened on your router, and the tunnel carries Norish only, never Home
+Assistant. Cloudflare asks for a one-time code sent to your email before Norish's own
+sign-in page even shows, so strangers never reach Norish at all.
+
+You need a free Cloudflare account and a domain on it (an existing one, or one bought
+from Cloudflare for about $10 a year). Set Cloudflare up first, in this order, so the
+address is never online without the email code in front of it:
+
+1. **Email code:** Cloudflare → Zero Trust → Access → Applications → Add an application →
+   Self-hosted. Name it Norish, set the domain to `recipes.example.com`, and add a policy
+   that allows the emails of the people who may open it. One-time PIN is the sign-in
+   method by default.
+2. **Tunnel:** Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared. Name it
+   `norish`. Copy the token (the long text after `--token` in the install command shown;
+   do not run that command). Add a public hostname: `recipes` on your domain, service
+   type **HTTP**, URL **`127.0.0.1:3002`**.
+3. **Here:** set **public_url** to `https://recipes.example.com` and paste the token into
+   **tunnel_token**. Save and restart. The log says `Cloudflare tunnel starting for …`
+   and then `Registered tunnel connection`.
+
+At home, keep using **url** and the Recipes tab as before. If the tunnel stops, Norish
+keeps running at home and the add-on retries the tunnel every minute.
+
+What each sign-in protects: Cloudflare's email code decides who can reach Norish at
+all. Norish's own sign-in decides whose recipes they see. Norish's share links and
+its phone app also meet the email code first, so they only work for the emails you
+allowed.
+
 ## Options
 
 | Option | What it does |
@@ -48,10 +80,13 @@ Settings → Import. A recipe with the same name or link is overwritten by the i
 | `backup_repo` | The private GitHub repo for the nightly backup. Not set turns the backup off. |
 | `backup_token` | A Norish API token from an admin account. |
 | `backup_time` | When the nightly backup runs (HH:MM, Home Assistant's time zone). |
+| `public_url` | The Cloudflare address Norish is opened at from anywhere. Not set = home only. |
+| `tunnel_token` | The Cloudflare Tunnel token. Not set = no tunnel. |
 
 ## What is inside
 
-Norish's published image (pinned as `BUILD_FROM` in the `Dockerfile`), plus Postgres 17, Redis and nginx.
+Norish's published image (pinned as `BUILD_FROM` in the `Dockerfile`), plus Postgres 17, Redis, nginx
+and Cloudflare's tunnel client (`cloudflared`, which only runs with a token).
 The link-import browser (Norish's Obscura build) runs inside the add-on too. If it
 cannot start, Norish still runs and only link imports fail. Everything is kept in the
 add-on's data folder, which Home Assistant backups include. The add-on stops for the few
