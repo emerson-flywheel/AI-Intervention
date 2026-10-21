@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4 — 2026-10-21
+
+- Ingress also passes `/api/trpc` (still needs a Norish API key). Norish's `/api/v1` can add
+  and read recipes but has no edit call, and editing goes through `/api/trpc`.
+
 ## 0.1.3 — 2026-10-21
 
 - Home Assistant ingress now reaches Norish's API (`/api/v1`, which still needs a Norish
