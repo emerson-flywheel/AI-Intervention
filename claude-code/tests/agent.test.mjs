@@ -14,7 +14,7 @@ const WORDS = new Set([
   'stdin over its cap', 'stdin is not text', 'no terminal', 'already signed in', 'not a login code',
   'no login is waiting', 'the code was not taken', 'the login did not finish',
   'that is the seat this box starts on', 'it is off-duty', 'it is off-duty already', 'it is not at its prompt',
-  'it did not go off-duty', 'it is not off-duty', 'it did not come back',
+  'it did not go off-duty', 'it is not off-duty', 'it did not come back', 'it found no claude to stop',
 ]);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -216,33 +216,66 @@ describe('type and interrupt', () => {
   });
 });
 
-// Off-Duty and On-Duty. A stand-in for Claude under the console loop: a process whose pid
-// herdr lists in the pane, and which on SIGTERM does what the loop does with the offduty
-// marker (state "off" while it is there). FAKE_IGNORE_TERM=1: a Claude that does not exit.
+// Off-Duty and On-Duty. A stand-in for the console loop: a process that runs Claude as its
+// child (the loop pid in loop-pid, as console-loop.sh writes it); the child, on SIGTERM, does
+// what the loop does with the offduty marker (state "off" while it is there). herdr lists the
+// child as npm's install runs it, claude.exe: on Home Assistant 0.3.6 (2026-10-22) the name
+// match found no Claude there, and every off was refused.
 describe('off and on', () => {
   const kids = [];
-  after(() => kids.forEach((k) => k.kill('SIGKILL')));
-  function claudeUnderLoop(sb, { ignoreTerm = false } = {}) {
-    const k = spawn(process.execPath, ['-e', `
+  const claudes = [];
+  after(() => {
+    kids.forEach((k) => k.kill('SIGKILL'));
+    for (const pid of claudes) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {}
+    }
+  });
+  async function claudeUnderLoop(sb, { ignoreTerm = false, name = 'claude.exe', loopPid = true } = {}) {
+    const child = `
       const fs = require('fs'); const run = ${JSON.stringify(sb.run)};
       process.on('SIGTERM', () => {
         if (${ignoreTerm}) return;
         if (fs.existsSync(run + '/offduty')) fs.writeFileSync(run + '/state', 'off\\n');
         process.exit(0);
       });
+      setInterval(() => {}, 1000);`;
+    const pidFile = join(sb.root, 'test-claude-pid');
+    const loop = spawn(process.execPath, ['-e', `
+      const { spawn } = require('child_process'); const fs = require('fs');
+      const c = spawn(process.execPath, ['-e', ${JSON.stringify(child)}], { stdio: 'ignore' });
+      fs.writeFileSync(${JSON.stringify(pidFile)}, String(c.pid));
       setInterval(() => {}, 1000);`], { stdio: 'ignore' });
-    kids.push(k);
+    kids.push(loop);
+    for (let i = 0; i < 100 && !existsSync(pidFile); i++) await sleep(50);
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    claudes.push(pid);
+    if (loopPid) writeFileSync(join(sb.run, 'loop-pid'), `${loop.pid}\n`);
     const h = sb.herdr();
-    h.panes['w1:p1'].procs = [{ name: 'claude', pid: k.pid }];
+    h.panes['w1:p1'].procs = [
+      { name, pid, argv: [`/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/${name}`] },
+    ];
     sb.setHerdr(h);
-    return k;
+    return pid;
   }
-  const gone = (k) => new Promise((r) => (k.exitCode !== null ? r(true) : k.on('exit', () => r(true))));
-  const running = (k) => k.exitCode === null && k.signalCode === null;
+  const alive = (pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const gone = async (pid) => {
+    for (let i = 0; i < 100 && alive(pid); i++) await sleep(50);
+    return !alive(pid);
+  };
+  const running = alive;
 
   test('off at its prompt: the marker first, then Claude asked to exit; answers ok and since', async () => {
     const sb = withConsole({ status: 'idle', lines: ['● done', '❯ ', '  ⏵⏵ auto mode on (shift+tab to cycle)'] });
-    const k = claudeUnderLoop(sb);
+    const k = await claudeUnderLoop(sb);
     await sleep(300);
     const r = await agent(sb, 'off claude');
     assert.equal(r.code, 0, r.stderr);
@@ -252,7 +285,7 @@ describe('off and on', () => {
     assert.equal(a.name, 'claude');
     assert.ok(Math.abs(a.since - Date.now()) < 20000);
     assert.equal(readFileSync(join(sb.run, 'offduty'), 'utf8').trim(), String(a.since));
-    await gone(k);
+    assert.ok(await gone(k), 'Claude exited');
     const snap = JSON.parse((await agent(sb, 'snapshot')).stdout).consoles[0];
     assert.equal(snap.state, 'off');
     assert.equal(snap.since, a.since);
@@ -273,7 +306,7 @@ describe('off and on', () => {
     ];
     for (const [h, run, words] of cases) {
       const sb = withConsole(h, run);
-      const k = claudeUnderLoop(sb);
+      const k = await claudeUnderLoop(sb);
       await sleep(200);
       await refused(sb, 'off claude', words, 3);
       assert.ok(!existsSync(join(sb.run, 'offduty')), `${words}: no marker`);
@@ -284,9 +317,27 @@ describe('off and on', () => {
 
   test('a Claude that does not exit: refused, and the marker is taken back', async () => {
     const sb = withConsole({ status: 'idle' });
-    const k = claudeUnderLoop(sb, { ignoreTerm: true });
+    const k = await claudeUnderLoop(sb, { ignoreTerm: true });
     await sleep(300);
     await refused(sb, 'off claude', 'it did not go off-duty', 3, { env: { ADDON_DUTY_WAIT_MS: '600' } });
+    assert.ok(!existsSync(join(sb.run, 'offduty')));
+    assert.ok(running(k));
+  });
+
+  test('no loop pid (a console started before 0.3.7): a Claude herdr names claude is still found', async () => {
+    const sb = withConsole({ status: 'idle' });
+    const k = await claudeUnderLoop(sb, { name: 'claude', loopPid: false });
+    await sleep(200);
+    const r = await agent(sb, 'off claude');
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(await gone(k));
+  });
+
+  test('no loop pid and no Claude by name: refused in words of its own, nothing marked or stopped', async () => {
+    const sb = withConsole({ status: 'idle' });
+    const k = await claudeUnderLoop(sb, { loopPid: false });
+    await sleep(200);
+    await refused(sb, 'off claude', 'it found no claude to stop', 3);
     assert.ok(!existsSync(join(sb.run, 'offduty')));
     assert.ok(running(k));
   });

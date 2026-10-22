@@ -75,7 +75,7 @@ fi
 # left off and a fresh state still starts cleanly.
 mkdir -p "${RUN}/guard.d"
 rm -f "${RUN}"/guard.d/* "${RUN}/relaunch" "${RUN}/state" "${RUN}/pane" "${RUN}/workspace" \
-    "${RUN}/ttyd-restart" "${RUN}/ttyd.pid" "${RUN}/remote"
+    "${RUN}/ttyd-restart" "${RUN}/ttyd.pid" "${RUN}/remote" "${RUN}/loop-pid" "${RUN}/offduty"
 {
     printf 'WORKDIR=%q\n' "${WORKDIR}"
     printf 'CLAUDE_CONFIG_DIR=%q\n' "${CLAUDE_CONFIG_DIR}"

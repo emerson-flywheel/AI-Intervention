@@ -37,6 +37,8 @@ has_conversation() {
 }
 
 cd "${WORKDIR}" || exit 1
+# The agent finds Claude as this loop's child (lib.mjs loopChildren), whatever it is called.
+printf '%s\n' "$$" > "${RUN}/.loop-pid.tmp" && mv -f "${RUN}/.loop-pid.tmp" "${RUN}/loop-pid"
 # Clear the `exec bash -lc …` line herdr typed to start this loop.
 printf '\033[H\033[2J'
 while :; do

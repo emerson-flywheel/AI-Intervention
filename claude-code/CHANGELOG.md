@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.7 — 2026-10-22
+
+- **Off-Duty works on a real install.** 0.3.6 looked for Claude by its process name, but
+  the app runs Claude Code's npm build, whose process is not called `claude`, so every
+  `off` was refused ("it is not at its prompt"). The console loop now records its own
+  process id and `off` stops the loop's child, whatever it is called. A sign-in's restart
+  of Claude uses the same lookup.
+- `off` with no Claude to find now says so (`it found no claude to stop`) instead of
+  "not at its prompt".
+
 ## 0.3.6 — 2026-10-22
 
 - **Off-Duty for the remote console**: two new agent commands. `off` closes Claude while

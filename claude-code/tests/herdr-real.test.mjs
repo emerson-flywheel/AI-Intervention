@@ -214,6 +214,9 @@ describe('real herdr', { skip }, () => {
   test('Off-Duty: off closes Claude at its prompt, the loop waits with no shell; on or Enter brings it back with --continue', async () => {
     await until(() => state() === 'claude' && screen().trimEnd().endsWith('>'), 'claude at its prompt');
     const before = count(screen(), 'fake-claude args');
+    // the loop's own pid, which off uses to find Claude whatever herdr calls it
+    const loopPid = Number(readFileSync(join(sb.run, 'loop-pid'), 'utf8'));
+    assert.equal(loopPid, hj('pane', 'process-info', '--pane', pane()).result.process_info.shell_pid);
     const off = await agent(sb, 'off claude');
     assert.equal(off.code, 0, off.stderr);
     assert.equal(state(), 'off');

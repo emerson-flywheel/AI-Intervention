@@ -148,20 +148,46 @@ export async function relaunchConsole() {
   return 'now';
 }
 
+// The console loop's own child processes (console-loop.sh writes its pid to loop-pid): while
+// the loop runs Claude, that is Claude, whatever it is called. npm's install runs it as
+// claude.exe, which herdr's process names never matched (0.3.6: every off was refused).
+export function loopChildren() {
+  const loop = Number(readRun('loop-pid'));
+  if (!Number.isInteger(loop) || loop <= 1) return [];
+  const kids = [];
+  let pids = [];
+  try {
+    pids = readdirSync('/proc').filter((d) => /^\d+$/.test(d));
+  } catch {}
+  for (const pid of pids) {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      // pid (comm) state ppid ...: comm may hold spaces or brackets, so read after the last ")"
+      const ppid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
+      if (ppid === loop) kids.push(Number(pid));
+    } catch {}
+  }
+  return kids;
+}
+
 // Ask Claude in the console's pane to exit (SIGTERM; its conversation is already on disk),
 // after writing the marker that tells the loop what to do next: "relaunch" or "offduty".
-// Returns false, and writes nothing, when no Claude runs there.
+// Claude is the loop's child; with no loop pid (a console started before 0.3.7), what herdr
+// names claude in the pane. Returns false, and writes nothing, when no Claude is found.
 export async function stopClaude(pane, marker, value = '1') {
-  const info = await herdr('pane', 'process-info', '--pane', pane);
-  const procs = info.result?.process_info?.foreground_processes || [];
-  const claude = procs.filter(
-    (p) => p.name === 'claude' || /(^|\/)claude$/.test(p.argv?.[0] || '') || /(^|\/)claude$/.test(p.argv?.[1] || ''),
-  );
-  if (!claude.length) return false;
+  let pids = loopChildren();
+  if (!pids.length) {
+    const info = await herdr('pane', 'process-info', '--pane', pane);
+    const procs = info.result?.process_info?.foreground_processes || [];
+    pids = procs
+      .filter((p) => p.name === 'claude' || /(^|\/)claude$/.test(p.argv?.[0] || '') || /(^|\/)claude$/.test(p.argv?.[1] || ''))
+      .map((p) => p.pid);
+  }
+  if (!pids.length) return false;
   writeRun(marker, value);
-  for (const p of claude) {
+  for (const pid of pids) {
     try {
-      process.kill(p.pid, 'SIGTERM');
+      process.kill(pid, 'SIGTERM');
     } catch {}
   }
   return true;
