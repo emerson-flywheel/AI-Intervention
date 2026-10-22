@@ -227,7 +227,7 @@ const verbs = {
       refuse('it is not at its prompt', STATE);
     }
     const since = Date.now();
-    if (!(await stopClaude(pane, 'offduty', since))) refuse('it is not at its prompt', STATE);
+    if (!(await stopClaude(pane, 'offduty', since))) refuse('it found no claude to stop', STATE);
     if (!(await loopReaches((s) => s === 'off'))) {
       dropRun('offduty');
       refuse('it did not go off-duty', STATE);
