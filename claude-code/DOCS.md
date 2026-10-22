@@ -135,10 +135,17 @@ Claude consoles). Leave both options empty and the port stays closed.
   where), so the remote side can pin it. Installing the app again makes a new one.
 - The agent answers these commands (one per login, as the ssh command): `snapshot`,
   `type <console>` (the line on stdin), `interrupt <console>`, `history <console>`,
-  `attach <console>`, `seats`, `seat-login <seat>`, `seat-code <seat>` (the code on
-  stdin), `seat-status <seat>`, `seat-signout <seat>`, `seat-use <seat>`. The console is
-  called `claude`. Answers are one JSON line; a refusal is one line on stderr
-  (`workspace-agent: refused: <words>`) with exit 2 (bad request) or 3 (wrong state).
+  `attach <console>`, `off <console>`, `on <console>`, `seats`, `seat-login <seat>`,
+  `seat-code <seat>` (the code on stdin), `seat-status <seat>`, `seat-signout <seat>`,
+  `seat-use <seat>`. The console is called `claude`. Answers are one JSON line; a refusal
+  is one line on stderr (`workspace-agent: refused: <words>`) with exit 2 (bad request) or
+  3 (wrong state).
+- `off` puts the console Off-Duty. Only while Claude sits at its prompt (no turn running,
+  no dialog): Claude exits with its conversation saved, and the Console shows Off-Duty with
+  no shell. `on`, or Enter on the Console, starts Claude again with `--continue`, so the
+  same conversation comes back. While it is Off-Duty, `type` is refused and `snapshot`
+  gives state `off` with `since`. The remote side decides when (for example after a while
+  with no reply); the app never goes Off-Duty by itself.
 - `attach` is a herdr client with every herdr key unbound, so it cannot open a
   workspace, tab, pane or shell. While it is attached, Claude exiting offers no shell
   (only Enter to start Claude again).

@@ -4,7 +4,7 @@
 // and said so, without HERDR_REAL. Needs tmux.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -209,6 +209,28 @@ describe('real herdr', { skip }, () => {
     assert.deepEqual(readdirSync(join(sb.run, 'guard.d')), []);
     typeRaw('exit');
     await until(() => state() === 'claude', 'claude again');
+  });
+
+  test('Off-Duty: off closes Claude at its prompt, the loop waits with no shell; on or Enter brings it back with --continue', async () => {
+    await until(() => state() === 'claude' && screen().trimEnd().endsWith('>'), 'claude at its prompt');
+    const before = count(screen(), 'fake-claude args');
+    const off = await agent(sb, 'off claude');
+    assert.equal(off.code, 0, off.stderr);
+    assert.equal(state(), 'off');
+    await until(() => screen().includes('Off-Duty: Claude is closed and its conversation is saved.'), 'the Off-Duty lines');
+    assert.equal(JSON.parse((await agent(sb, 'snapshot')).stdout).consoles[0].state, 'off');
+    assert.equal((await agent(sb, 'type claude', { stdin: 'hi' })).stderr, 'workspace-agent: refused: it is off-duty\n');
+    const on = await agent(sb, 'on claude');
+    assert.equal(on.code, 0, on.stderr);
+    await until(() => count(screen(), 'fake-claude args') === before + 1 && state() === 'claude', 'claude again');
+    assert.match(screen().split('On-Duty: starting Claude with its conversation.').at(-1), /fake-claude args: .*--continue/);
+    // Enter on the Console does the same, and a line typed there never runs in a shell
+    await until(() => screen().trimEnd().endsWith('>'), 'claude at its prompt again');
+    assert.equal((await agent(sb, 'off claude')).code, 0);
+    typeRaw('echo OFF-$((40+2))');
+    await until(() => count(screen(), 'fake-claude args') === before + 2 && state() === 'claude', 'claude after Enter');
+    assert.ok(!screen().includes('OFF-42'), 'nothing ran in a shell');
+    assert.ok(!existsSync(join(sb.run, 'offduty')));
   });
 });
 

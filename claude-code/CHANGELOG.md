@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6 — 2026-10-22
+
+- **Off-Duty for the remote console**: two new agent commands. `off` closes Claude while
+  it sits at its prompt, with its conversation saved, and the Console waits Off-Duty
+  (no shell); `on`, or Enter on the Console, brings the same conversation back. A remote
+  dashboard can use them to rest a console that has had no reply for a while.
+
 ## 0.3.5 — 2026-10-19
 
 - **Model versions** on the Settings tab: Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1,

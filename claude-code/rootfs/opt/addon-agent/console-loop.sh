@@ -2,6 +2,7 @@
 # shellcheck shell=bash
 # The console pane's loop (started by console.mjs as `exec bash -lc <this>`).
 # Claude runs with --continue when a conversation exists. When Claude exits:
+#  - Off-Duty (the offduty marker), it waits with no shell until On-Duty or Enter;
 #  - after a sign-in (the relaunch marker), Claude starts again on the new login;
 #  - while a remote client is attached or typing (a guard in guard.d), no shell is
 #    offered, only Enter to start Claude again;
@@ -44,6 +45,27 @@ while :; do
     setstate claude
     "${CLAUDE_BIN:-claude}" "${args[@]}"
     status=$?
+    # Off-Duty (the agent's `off`): wait here, never in a shell, until the agent's `on`
+    # removes the marker or someone presses Enter on the Console; then Claude starts again
+    # with --continue, so the same conversation comes back.
+    if [ -e "${RUN}/offduty" ]; then
+        rm -f "${RUN}/relaunch"
+        setstate off
+        echo
+        echo "[claude-code] Off-Duty: Claude is closed and its conversation is saved."
+        echo "[claude-code] Press Enter to bring it back On-Duty."
+        while [ -e "${RUN}/offduty" ]; do
+            read -r -t 2 _
+            rc=$?
+            if [ "${rc}" -eq 0 ]; then
+                rm -f "${RUN}/offduty"
+            elif [ "${rc}" -le 128 ]; then
+                sleep 2
+            fi
+        done
+        echo "[claude-code] On-Duty: starting Claude with its conversation."
+        continue
+    fi
     if [ -e "${RUN}/relaunch" ]; then
         rm -f "${RUN}/relaunch"
         echo "[claude-code] Signed in again: starting Claude on the new login."
