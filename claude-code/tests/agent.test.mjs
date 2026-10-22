@@ -2,7 +2,7 @@
 // 3), the answer shapes a remote client parses, and the sign-in through seat-login/seat-code
 // with the fake claude in a real tmux.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -13,9 +13,11 @@ const WORDS = new Set([
   'a line may not start with ! / or #', 'control character', 'nothing to type', 'too long',
   'stdin over its cap', 'stdin is not text', 'no terminal', 'already signed in', 'not a login code',
   'no login is waiting', 'the code was not taken', 'the login did not finish',
-  'that is the seat this box starts on',
+  'that is the seat this box starts on', 'it is off-duty', 'it is off-duty already', 'it is not at its prompt',
+  'it did not go off-duty', 'it is not off-duty', 'it did not come back',
 ]);
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sandboxes = [];
 function box(opts) {
   const sb = sandbox(opts);
@@ -206,7 +208,7 @@ describe('type and interrupt', () => {
     const none = withConsole({ status: null }, {});
     writeFileSync(join(none.run, 'state'), '');
     assert.match(attachInTty(none), /refused: no terminal/, 'an empty state');
-    for (const state of ['claude', 'prompt']) {
+    for (const state of ['claude', 'prompt', 'off']) {
       const sb = withConsole({}, { state });
       assert.doesNotMatch(attachInTty(sb), /refused/, state);
       assert.ok(sb.herdr().calls.some((c) => c[0] === 'session' && c[1] === 'attach'), `${state}: attach started`);
@@ -214,8 +216,108 @@ describe('type and interrupt', () => {
   });
 });
 
+// Off-Duty and On-Duty. A stand-in for Claude under the console loop: a process whose pid
+// herdr lists in the pane, and which on SIGTERM does what the loop does with the offduty
+// marker (state "off" while it is there). FAKE_IGNORE_TERM=1: a Claude that does not exit.
+describe('off and on', () => {
+  const kids = [];
+  after(() => kids.forEach((k) => k.kill('SIGKILL')));
+  function claudeUnderLoop(sb, { ignoreTerm = false } = {}) {
+    const k = spawn(process.execPath, ['-e', `
+      const fs = require('fs'); const run = ${JSON.stringify(sb.run)};
+      process.on('SIGTERM', () => {
+        if (${ignoreTerm}) return;
+        if (fs.existsSync(run + '/offduty')) fs.writeFileSync(run + '/state', 'off\\n');
+        process.exit(0);
+      });
+      setInterval(() => {}, 1000);`], { stdio: 'ignore' });
+    kids.push(k);
+    const h = sb.herdr();
+    h.panes['w1:p1'].procs = [{ name: 'claude', pid: k.pid }];
+    sb.setHerdr(h);
+    return k;
+  }
+  const gone = (k) => new Promise((r) => (k.exitCode !== null ? r(true) : k.on('exit', () => r(true))));
+  const running = (k) => k.exitCode === null && k.signalCode === null;
+
+  test('off at its prompt: the marker first, then Claude asked to exit; answers ok and since', async () => {
+    const sb = withConsole({ status: 'idle', lines: ['● done', '❯ ', '  ⏵⏵ auto mode on (shift+tab to cycle)'] });
+    const k = claudeUnderLoop(sb);
+    await sleep(300);
+    const r = await agent(sb, 'off claude');
+    assert.equal(r.code, 0, r.stderr);
+    const a = JSON.parse(r.stdout);
+    assert.deepEqual(Object.keys(a), ['ok', 'name', 'since']);
+    assert.equal(a.ok, true);
+    assert.equal(a.name, 'claude');
+    assert.ok(Math.abs(a.since - Date.now()) < 20000);
+    assert.equal(readFileSync(join(sb.run, 'offduty'), 'utf8').trim(), String(a.since));
+    await gone(k);
+    const snap = JSON.parse((await agent(sb, 'snapshot')).stdout).consoles[0];
+    assert.equal(snap.state, 'off');
+    assert.equal(snap.since, a.since);
+  });
+
+  test('off is refused, and nothing is stopped or marked, unless Claude sits at its prompt', async () => {
+    const cases = [
+      [{ status: 'working' }, {}, 'it is not at its prompt'],
+      [{ status: 'blocked' }, {}, 'it is not at its prompt'],
+      // herdr cannot read the agent (the box says busy): the screen decides
+      [{ status: 'unknown', lines: ['✻ Cogitating… (12s · esc to interrupt)', '❯ '] }, {}, 'it is not at its prompt'],
+      [{ status: 'idle', lines: ['❯ ', '  ⏵⏵ auto mode on · 1 shell · ? for shortcuts'] }, {}, 'it is not at its prompt'],
+      [{ status: 'idle', lines: ['Do you want to proceed?', ' ❯ 1. Yes'] }, {}, 'a dialog is on its screen'],
+      [{ status: null }, { state: 'shell' }, 'it is not at its prompt'],
+      [{ status: null }, { state: 'prompt' }, 'it is not at its prompt'],
+      [{ status: null }, { state: 'starting' }, 'it is not at its prompt'],
+      [{ status: null }, { state: 'off' }, 'it is off-duty already'],
+    ];
+    for (const [h, run, words] of cases) {
+      const sb = withConsole(h, run);
+      const k = claudeUnderLoop(sb);
+      await sleep(200);
+      await refused(sb, 'off claude', words, 3);
+      assert.ok(!existsSync(join(sb.run, 'offduty')), `${words}: no marker`);
+      assert.ok(running(k), `${JSON.stringify(h)}: Claude left running`);
+    }
+    await refused(box(), 'off claude', 'no such console started here', 3);
+  });
+
+  test('a Claude that does not exit: refused, and the marker is taken back', async () => {
+    const sb = withConsole({ status: 'idle' });
+    const k = claudeUnderLoop(sb, { ignoreTerm: true });
+    await sleep(300);
+    await refused(sb, 'off claude', 'it did not go off-duty', 3, { env: { ADDON_DUTY_WAIT_MS: '600' } });
+    assert.ok(!existsSync(join(sb.run, 'offduty')));
+    assert.ok(running(k));
+  });
+
+  test('while Off-Duty: type is refused; on removes the marker and waits for the loop', async () => {
+    const sb = withConsole({ status: null }, { state: 'off', offduty: 1760000000000 });
+    await refused(sb, 'type claude', 'it is off-duty', 3, { stdin: 'hello' });
+    assert.deepEqual(typed(sb), []);
+    // the loop, as console-loop.sh: once the marker goes, Claude starts again
+    const loop = spawn(process.execPath, ['-e', `
+      const fs = require('fs'); const run = ${JSON.stringify(sb.run)};
+      setInterval(() => { if (!fs.existsSync(run + '/offduty')) { fs.writeFileSync(run + '/state', 'claude\\n'); process.exit(0); } }, 50);`],
+      { stdio: 'ignore' });
+    kids.push(loop);
+    const r = await agent(sb, 'on claude');
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), { ok: true, name: 'claude' });
+    assert.ok(!existsSync(join(sb.run, 'offduty')));
+    assert.equal(readFileSync(join(sb.run, 'state'), 'utf8').trim(), 'claude');
+  });
+
+  test('on is refused unless Off-Duty, and says so when the loop does not come back', async () => {
+    for (const state of ['claude', 'shell', 'prompt']) await refused(withConsole({}, { state }), 'on claude', 'it is not off-duty', 3);
+    const stuck = withConsole({ status: null }, { state: 'off', offduty: 1 });
+    await refused(stuck, 'on claude', 'it did not come back', 3, { env: { ADDON_DUTY_WAIT_MS: '400' } });
+    await refused(box(), 'on claude', 'no such console started here', 3);
+  });
+});
+
 describe('seats', () => {
-  const creds = (sb, body) => writeFileSync(join(sb.data, 'claude', '.credentials.json'), body);
+  const creds =(sb, body) => writeFileSync(join(sb.data, 'claude', '.credentials.json'), body);
 
   test('seats: signed out, lapsed (file with an empty token), signed in; the token is never shown', async () => {
     const sb = box();
