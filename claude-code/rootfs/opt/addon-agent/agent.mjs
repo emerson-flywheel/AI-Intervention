@@ -7,7 +7,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ATTACH_CONFIG, CLAUDE_DIR, CONSOLE, HERDR, NAME_RE, SESSION, addGuard, consolePane, consoleState,
-  dropGuard, guardedShell, herdr, paneLines, readRun, seatName, sleep,
+  dropGuard, dropRun, guardedShell, herdr, paneLines, readRun, seatName, sleep, stopClaude,
 } from './lib.mjs';
 import { LoginError, seatLogin, seatStatus, startLogin, submitCode, withLoginLock } from './seat.mjs';
 
@@ -16,9 +16,14 @@ const STATE = 3;
 const TYPE_CAP = 8000;
 const CODE_CAP = 600;
 const DIALOG = ['Esc to cancel', 'Enter to select', 'Do you want to proceed?'];
+// Claude at work on its last rows: "esc to interrupt", or a background shell still running
+const BUSY_RE = /esc to interrupt|·\s*\d+\s+shells?\s*·/i;
+// how long off and on wait for the console loop to show the change
+const DUTY_WAIT_MS = Number(process.env.ADDON_DUTY_WAIT_MS) || 15000;
 const NO_NAME = new Set(['snapshot', 'seats']);
 const WITH_NAME = new Set([
-  'type', 'interrupt', 'history', 'attach', 'seat-login', 'seat-code', 'seat-status', 'seat-signout', 'seat-use',
+  'type', 'interrupt', 'history', 'attach', 'off', 'on',
+  'seat-login', 'seat-code', 'seat-status', 'seat-signout', 'seat-use',
 ]);
 
 class Refusal extends Error {
@@ -82,6 +87,13 @@ async function needConsole(name) {
   return pane;
 }
 
+async function loopReaches(ok) {
+  for (const end = Date.now() + DUTY_WAIT_MS; Date.now() < end; await sleep(100)) {
+    if (ok(readRun('state'))) return true;
+  }
+  return ok(readRun('state'));
+}
+
 function needSeat(name) {
   if (name !== seatName()) refuse('bad name', BAD);
   return name;
@@ -115,12 +127,15 @@ const verbs = {
     const consoles = [];
     const pane = await consolePane();
     if (pane) {
+      const state = await consoleState(pane);
       consoles.push({
         name: CONSOLE,
-        state: await consoleState(pane),
+        state,
         seat: null,
         created: Number(readRun('created')) || null,
         activity: lastActivity(),
+        // Off-Duty: since when
+        ...(state === 'off' ? { since: Number(readRun('offduty')) || null } : {}),
         lines: await paneLines(pane, 200),
       });
     }
@@ -133,7 +148,8 @@ const verbs = {
     const pane = await needConsole(name);
     addGuard();
     try {
-      if (guardedShell() || !['busy', 'working', 'blocked', 'idle', 'done'].includes(await consoleState(pane))) {
+      if (readRun('state') === 'off') refuse('it is off-duty', STATE);
+      if (guardedShell() ||!['busy', 'working', 'blocked', 'idle', 'done'].includes(await consoleState(pane))) {
         refuse('no terminal', STATE);
       }
       const recent = (await paneLines(pane, 60)).filter((l) => l.trim() !== '').slice(-20).join('\n');
@@ -169,9 +185,10 @@ const verbs = {
     if (!process.stdin.isTTY || !process.stdout.isTTY) refuse('no terminal', BAD);
     await needConsole(name);
     addGuard();
-    // Only while the loop runs Claude or waits at its Enter prompt: not while the console
-    // is starting (for a moment an interactive bash) or in its shell, or the state is unknown.
-    if (!['claude', 'prompt'].includes(readRun('state'))) {
+    // Only while the loop runs Claude, waits at its Enter prompt or waits Off-Duty: not while
+    // the console is starting (for a moment an interactive bash) or in its shell, or the state
+    // is unknown.
+    if (!['claude', 'prompt', 'off'].includes(readRun('state'))) {
       dropGuard();
       refuse('no terminal', STATE);
     }
@@ -194,6 +211,36 @@ const verbs = {
     watching = false;
     dropGuard();
     process.exitCode = code;
+  },
+
+  // Off-Duty: Claude exits with its conversation saved, and the console loop waits, with
+  // no shell, until `on` (or Enter on the Console) starts it again with --continue. Only at
+  // its prompt: never mid-turn, with a dialog up, or in the loop's shell or Enter prompt.
+  async off(name) {
+    const pane = await needConsole(name);
+    const loop = readRun('state');
+    if (loop === 'off') refuse('it is off-duty already', STATE);
+    const recent = (await paneLines(pane, 60)).filter((l) => l.trim() !== '');
+    if (DIALOG.some((d) => recent.slice(-20).join('\n').includes(d))) refuse('a dialog is on its screen', STATE);
+    if (loop !== 'claude' || ['working', 'blocked'].includes(await consoleState(pane))
+      || BUSY_RE.test(recent.slice(-6).join('\n'))) {
+      refuse('it is not at its prompt', STATE);
+    }
+    const since = Date.now();
+    if (!(await stopClaude(pane, 'offduty', since))) refuse('it is not at its prompt', STATE);
+    if (!(await loopReaches((s) => s === 'off'))) {
+      dropRun('offduty');
+      refuse('it did not go off-duty', STATE);
+    }
+    answer({ ok: true, name: CONSOLE, since });
+  },
+
+  async on(name) {
+    await needConsole(name);
+    if (readRun('state') !== 'off') refuse('it is not off-duty', STATE);
+    dropRun('offduty');
+    if (!(await loopReaches((s) => s !== 'off'))) refuse('it did not come back', STATE);
+    answer({ ok: true, name: CONSOLE });
   },
 
   async seats() {

@@ -92,12 +92,17 @@ export async function consolePane() {
   return r.result?.pane?.pane_id === pane ? pane : null;
 }
 
-// busy | working | waiting | blocked | idle | done | shell
+export function dropRun(name) {
+  rmSync(join(RUN, name), { force: true });
+}
+
+// busy | working | waiting | blocked | idle | done | shell | off
 const AGENT_STATES = { idle: 'idle', working: 'working', blocked: 'blocked', done: 'done' };
 export async function consoleState(pane) {
   const loop = readRun('state');
   if (loop === 'shell') return 'shell';
   if (loop === 'prompt') return 'waiting';
+  if (loop === 'off') return 'off';
   const r = await herdr('agent', 'get', pane);
   if (r.error?.code === 'agent_not_found') return loop === 'claude' ? 'busy' : 'shell';
   return AGENT_STATES[r.result?.agent?.agent_status] || 'busy';
@@ -139,19 +144,27 @@ export async function relaunchConsole() {
     await herdr('pane', 'send-keys', pane, 'enter');
     return 'now';
   }
+  if (!(await stopClaude(pane, 'relaunch'))) return 'none';
+  return 'now';
+}
+
+// Ask Claude in the console's pane to exit (SIGTERM; its conversation is already on disk),
+// after writing the marker that tells the loop what to do next: "relaunch" or "offduty".
+// Returns false, and writes nothing, when no Claude runs there.
+export async function stopClaude(pane, marker, value = '1') {
   const info = await herdr('pane', 'process-info', '--pane', pane);
   const procs = info.result?.process_info?.foreground_processes || [];
   const claude = procs.filter(
     (p) => p.name === 'claude' || /(^|\/)claude$/.test(p.argv?.[0] || '') || /(^|\/)claude$/.test(p.argv?.[1] || ''),
   );
-  if (!claude.length) return 'none';
-  writeRun('relaunch', '1');
+  if (!claude.length) return false;
+  writeRun(marker, value);
   for (const p of claude) {
     try {
       process.kill(p.pid, 'SIGTERM');
     } catch {}
   }
-  return 'now';
+  return true;
 }
 
 const ANSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
