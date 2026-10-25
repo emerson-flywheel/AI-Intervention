@@ -2,6 +2,7 @@
 // page under a path prefix). The sign-in link is checked here too, with the same
 // check the server uses, before any tab is sent to it.
 import { checkCode, checkLoginUrl } from './linkcheck.mjs';
+import { touchScroll } from './touchscroll.mjs';
 
 const $ = (id) => document.getElementById(id);
 const views = ['v-signed-in', 'v-signed-out', 'v-code', 'v-done'];
@@ -418,6 +419,14 @@ async function cancel() {
   await refresh();
 }
 
+// A finger swipe scrolls the Console (touchscroll.mjs), on each load of its frame.
+const frameScroll = () => {
+  try {
+    touchScroll($('frame').contentWindow);
+  } catch {}
+};
+$('frame').addEventListener('load', frameScroll);
+frameScroll();
 $('tab-console').addEventListener('click', () => selectTab('console'));
 $('tab-settings').addEventListener('click', () => {
   selectTab('settings');

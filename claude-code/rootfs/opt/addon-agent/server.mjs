@@ -29,6 +29,7 @@ const FILES = {
   '/': ['page.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/linkcheck.mjs': ['linkcheck.mjs', 'text/javascript; charset=utf-8'],
+  '/touchscroll.mjs': ['touchscroll.mjs', 'text/javascript; charset=utf-8'],
 };
 const PAGE_HEADERS = {
   'Content-Security-Policy':

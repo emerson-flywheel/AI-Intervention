@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.8 — 2026-10-25
+
+- **The Console scrolls with a finger** on a phone or tablet (the Home Assistant app,
+  Android and iOS). herdr takes the mouse, so the browser terminal ignored touch and a
+  swipe did nothing. Now a swipe down goes back through the conversation and a swipe up
+  comes forward, as a mouse wheel does. A tap still brings up the keyboard.
+
 ## 0.3.7 — 2026-10-22
 
 - **Off-Duty works on a real install.** 0.3.6 looked for Claude by its process name, but
