@@ -7,7 +7,9 @@ import http from 'node:http';
 import net from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { remoteStatus } from './keyline.mjs';
+import {
+  APPLY, RESET, RemoteError, hostKeyFingerprint, remoteOff, remoteRemove, remoteStatus, saveRemote,
+} from './keyline.mjs';
 import { readRun, relaunchConsole, seatName, writeRun } from './lib.mjs';
 import { LookError, lookSettings, saveLook, writeConfigs } from './look.mjs';
 import { LoginError, cancelLogin, loginWaiting, seatLogin, startLogin, submitCode, withLoginLock } from './seat.mjs';
@@ -94,6 +96,8 @@ async function state() {
 
 async function api(req, res, path) {
   if (req.method === 'GET' && path === '/api/state') return send(res, 200, await state());
+  // The host key's fingerprint, only when the page's Show is pressed.
+  if (req.method === 'GET' && path === '/api/remote/hostkey') return send(res, 200, { hostKey: hostKeyFingerprint() });
   if (req.method !== 'POST') return send(res, 405, { error: 'method' });
   // A JSON body and our own header: a form or a plain cross-site request cannot send both.
   if (!String(req.headers['content-type']).startsWith('application/json') || req.headers['x-seat'] !== '1') {
@@ -142,8 +146,29 @@ async function api(req, res, path) {
       }
       return send(res, 200, { saved: true, reload: changed });
     }
+    // Settings › Remote console: the setting is saved here and run.sh applies it within 5 s
+    // (keyline.mjs again, sshd started or stopped), so no restart and Claude keeps running.
+    // A new host key is made by run.sh too, as it owns sshd.
+    if (path.startsWith('/api/remote/')) {
+      const body = await readJson(req);
+      const act = {
+        '/api/remote/enable': () => saveRemote({ key: body?.key || undefined, from: body?.from }),
+        '/api/remote/off': () => remoteOff(),
+        '/api/remote/remove': () => remoteRemove(),
+      }[path];
+      if (act) {
+        act();
+        writeRun(APPLY, '1');
+        return send(res, 200, { saved: true });
+      }
+      if (path === '/api/remote/reset-hostkey') {
+        writeRun(RESET, '1');
+        return send(res, 200, { saved: true });
+      }
+    }
   } catch (err) {
     if (err instanceof LoginError) return send(res, STATUS[err.code] || 409, { error: err.code });
+    if (err instanceof RemoteError) return send(res, err.code === 'by-option' ? 409 : 400, { error: err.code });
     if (err instanceof SettingsError || err instanceof LookError) return send(res, 400, { error: err.code });
     return send(res, 500, { error: 'failed' });
   }

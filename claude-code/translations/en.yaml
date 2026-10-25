@@ -13,11 +13,12 @@ configuration:
   remote_key:
     name: Remote console key (advanced)
     description: >-
-      One ssh-ed25519 public key line. Leave empty to keep the remote console port closed.
+      One ssh-ed25519 public key line. Easier: leave empty and use Settings › Remote
+      console instead. While set, this option wins over the page.
   remote_allow_from:
     name: Remote console allowed from (advanced)
     description: >-
       The address(es) the remote key may log in from, for example 192.168.1.20 or
       192.168.1.0/24, comma-separated. Required with a remote key.
 network:
-  22/tcp: Remote console (ssh, key only; closed unless a remote key is set)
+  22/tcp: Remote console (ssh, key only; closed until turned on in Settings)

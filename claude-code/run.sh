@@ -7,7 +7,7 @@
 #   herdr server, session "claude"  the console: one workspace whose pane runs Claude
 #   ttyd on 127.0.0.1:7682          a herdr client for the page's Console tab
 #   node server.mjs on :7681        the page (ingress): Console + Settings tabs, sign-in
-#   sshd on :22 (host 2248)         only when remote_key is set: the remote console
+#   sshd on :22 (host 2248)         only once the remote console is on (Settings, or remote_key)
 set -euo pipefail
 
 OPTIONS="/data/options.json"
@@ -75,7 +75,8 @@ fi
 # left off and a fresh state still starts cleanly.
 mkdir -p "${RUN}/guard.d"
 rm -f "${RUN}"/guard.d/* "${RUN}/relaunch" "${RUN}/state" "${RUN}/pane" "${RUN}/workspace" \
-    "${RUN}/ttyd-restart" "${RUN}/ttyd.pid" "${RUN}/remote" "${RUN}/loop-pid" "${RUN}/offduty"
+    "${RUN}/ttyd-restart" "${RUN}/ttyd.pid" "${RUN}/remote" "${RUN}/loop-pid" "${RUN}/offduty" \
+    "${RUN}/remote-apply" "${RUN}/hostkey-reset"
 {
     printf 'WORKDIR=%q\n' "${WORKDIR}"
     printf 'CLAUDE_CONFIG_DIR=%q\n' "${CLAUDE_CONFIG_DIR}"
@@ -132,17 +133,21 @@ start_page() {
     PAGE_PID=$!
 }
 
-# --- sshd: the remote key (only with remote_key) ---
+# --- sshd: the remote key (remote_key, or Settings › Remote console) ---
+# keyline.mjs reads the options, else the page's /data/remote.json. The page asks for the
+# setting to be applied again (remote-apply) or for a new host key (hostkey-reset); the
+# loop below does both, with no restart.
 SSHD_PID=""
 SSHD_WANTED=0
 prepare_sshd() {
     local rc=0
+    SSHD_WANTED=0
     node "${AGENT}/keyline.mjs" || rc=$?
     case "${rc}" in
         0) ;;
-        1) log "Remote console: remote_key is empty, so its port stays closed."; return 0 ;;
-        3) log "Remote console: remote_allow_from must name the address(es) the key may log in from (no names, no /0). Refused; the port stays closed."; return 0 ;;
-        *) log "Remote console: remote_key is not one plain ssh-ed25519 public key line. Refused; the port stays closed."; return 0 ;;
+        1) log "Remote console: off (no remote_key, and not turned on in Settings), so its port stays closed."; return 0 ;;
+        3) log "Remote console: the key's addresses must name where it may log in from (no names, no /0). Refused; the port stays closed."; return 0 ;;
+        *) log "Remote console: the key is not one plain ssh-ed25519 public key line. Refused; the port stays closed."; return 0 ;;
     esac
     mkdir -p /data/ssh
     chmod 700 /data/ssh
@@ -158,6 +163,16 @@ prepare_sshd() {
 start_sshd() {
     /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config.addon &
     SSHD_PID=$!
+}
+# Off, removed or a new host key: sshd and every login it holds (an attached remote client
+# too) end, so nothing keeps working on the old setting.
+stop_sshd() {
+    if alive "${SSHD_PID}"; then
+        kill "${SSHD_PID}" 2>/dev/null || true
+        wait "${SSHD_PID}" 2>/dev/null || true
+    fi
+    SSHD_PID=""
+    pkill -x sshd 2>/dev/null || true
 }
 
 stop_all() {
@@ -204,6 +219,26 @@ while :; do
     fi
     alive "${TTYD_PID}" || { log "ttyd stopped; starting it again."; start_ttyd; }
     alive "${PAGE_PID}" || { log "Page server stopped; starting it again."; start_page; }
+    # Settings › Remote console › Reset host key: a new identity for sshd. Computers that
+    # pinned the old one refuse until they take the new fingerprint.
+    if [ -f "${RUN}/hostkey-reset" ]; then
+        rm -f "${RUN}/hostkey-reset" /data/ssh/ssh_host_ed25519_key /data/ssh/ssh_host_ed25519_key.pub
+        log "Remote console: a new host key was asked for on the Settings tab."
+        stop_sshd
+        touch "${RUN}/remote-apply"
+    fi
+    # Settings › Remote console turned on, off or changed: the key line again, then sshd
+    # started or stopped to match. A new key or address alone needs no sshd restart.
+    if [ -f "${RUN}/remote-apply" ]; then
+        rm -f "${RUN}/remote-apply"
+        prepare_sshd
+        if [ "${SSHD_WANTED}" = 1 ]; then
+            alive "${SSHD_PID}" || { log "Remote console: on; port open."; start_sshd; }
+        elif alive "${SSHD_PID}" || pgrep -x sshd >/dev/null 2>&1; then
+            log "Remote console: turned off on the Settings tab; port closed."
+            stop_sshd
+        fi
+    fi
     if [ "${SSHD_WANTED}" = 1 ] && ! alive "${SSHD_PID}"; then
         log "sshd stopped; starting it again."
         start_sshd

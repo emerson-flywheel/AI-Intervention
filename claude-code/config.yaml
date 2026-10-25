@@ -5,7 +5,7 @@
 # Signs in with your Claude Pro or Max plan, NOT an API key. The slug stays claude_code
 # (the app's id since 0.1), so an installed copy updates in place.
 name: "AI Intervention"
-version: "0.3.9"
+version: "0.4.0"
 slug: "claude_code"
 description: "Claude Code in your sidebar: a console that stays open, and sign-in from the browser. Uses your Claude Pro or Max plan, no API key."
 url: "https://github.com/emerson-flywheel/AI-Intervention"
@@ -35,11 +35,12 @@ hassio_api: true
 hassio_role: admin
 
 # The remote console: one ssh port, key auth only, every login forced into the app's
-# agent (no shell). sshd starts only when remote_key and remote_allow_from are set.
+# agent (no shell). sshd starts only once it is turned on in Settings › Remote console,
+# or when remote_key and remote_allow_from are set (the options win while set).
 ports:
   22/tcp: 2248
 ports_description:
-  22/tcp: "Remote console (ssh, key only; stays closed unless remote_key is set)"
+  22/tcp: "Remote console (ssh, key only; closed until turned on in Settings)"
 
 # Filesystem access to all HA items (read-write). homeassistant_config = /homeassistant
 # (automations.yaml, configuration.yaml, .storage, etc.).

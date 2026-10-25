@@ -8,14 +8,14 @@
   :root {
     --bg: #fafafa; --card: #fff; --text: #212121; --muted: #616161; --line: #e0e0e0;
     --primary: #03a9f4; --on-primary: #fff; --ok: #0f9d58; --warn: #b26a00; --warn-bg: #fff4e5;
-    --err: #c62828; --chip-ok-bg: #e6f4ea; --chip-warn-bg: #fff4e5;
+    --err: #c62828; --chip-ok-bg: #e6f4ea; --chip-warn-bg: #fff4e5; --sel-bg: #e1f5fe;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #111; --card: #1c1c1c; --text: #e1e1e1; --muted: #9e9e9e; --line: #333;
       --primary: #03a9f4; --on-primary: #fff; --ok: #6fcf97; --warn: #ffb74d; --warn-bg: #2e2412;
-      --err: #ef9a9a; --chip-ok-bg: #16301f; --chip-warn-bg: #2e2412;
+      --err: #ef9a9a; --chip-ok-bg: #16301f; --chip-warn-bg: #2e2412; --sel-bg: #10303f;
       color-scheme: dark;
     }
   }
@@ -99,7 +99,41 @@
     border: 1px solid var(--line); border-radius: 8px;
   }
   input:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  /* Actions sit bottom right, the main one furthest right (the app's standard). */
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; justify-content: flex-end; }
+  /* Settings: a menu on the left, one section at a time; on a phone the menu is chips on top. */
+  .split { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; max-width: 840px; margin: 0 auto; align-items: start; }
+  .split .card { max-width: none; margin: 0; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav button {
+    appearance: none; border: 0; background: none; font: inherit; color: var(--text); text-align: left;
+    padding: 8px 12px; border-radius: 8px; display: flex; justify-content: space-between; gap: 8px; cursor: pointer;
+  }
+  .nav button[aria-selected="true"] { background: var(--sel-bg); color: var(--primary); font-weight: 500; }
+  .nav .s { color: var(--muted); font-size: 12px; font-weight: 400; white-space: nowrap; }
+  .sec-head { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
+  .sec-head h1 { margin: 0; }
+  .sec-head .chip { margin-left: auto; }
+  .chip.off { background: none; color: var(--muted); border: 1px solid var(--line); }
+  textarea {
+    width: 100%; font: 13px/1.4 ui-monospace, "Roboto Mono", Menlo, Consolas, monospace; padding: 8px 10px;
+    color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; resize: vertical;
+  }
+  button.small { padding: 3px 10px; font-size: 13px; }
+  button.secondary.danger { color: var(--err); }
+  dialog {
+    border: 0; border-radius: 14px; padding: 18px; max-width: min(480px, calc(100vw - 32px));
+    background: var(--card); color: var(--text); box-shadow: 0 10px 40px rgba(0, 0, 0, .35);
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, .45); }
+  dialog h1 { font-size: 17px; font-weight: 500; margin: 0 0 8px; }
+  dialog ul { padding-left: 18px; margin: 8px 0 0; }
+  @media (max-width: 600px) {
+    .split { grid-template-columns: 1fr; gap: 12px; }
+    .nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+    .nav button { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
+    .nav .s { display: none; }
+  }
   button.primary, button.secondary {
     font: inherit; font-weight: 500; border-radius: 8px; padding: 9px 16px; cursor: pointer;
   }
@@ -125,7 +159,14 @@
     <iframe id="frame" src="console/" title="Claude Code console"></iframe>
   </section>
   <section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-    <div class="card">
+    <div class="split">
+      <nav class="nav" role="tablist" aria-label="Settings">
+        <button role="tab" id="nav-seat" data-sec="seat" aria-controls="sec-seat" aria-selected="true">Seat <span class="s" id="nav-seat-s"></span></button>
+        <button role="tab" id="nav-look" data-sec="look" aria-controls="sec-look" aria-selected="false">Console look <span class="s" id="nav-look-s"></span></button>
+        <button role="tab" id="nav-remote" data-sec="remote" aria-controls="sec-remote" aria-selected="false">Remote console <span class="s" id="nav-remote-s"></span></button>
+      </nav>
+      <div class="secs">
+    <div class="card sec" id="sec-seat" role="tabpanel" aria-labelledby="nav-seat">
       <h1>Seat(s)</h1>
       <p class="hint">The Claude login this app uses.</p>
       <div class="seat">
@@ -162,9 +203,9 @@
             <dd><select id="mode"></select></dd>
           </dl>
           <div class="row">
-            <button class="primary" id="save">Save</button>
-            <button class="text" id="again" hidden>Sign in again</button>
+            <button class="secondary" id="again" hidden>Sign in again</button>
             <button class="secondary" id="start" hidden>Sign in at claude.ai ↗</button>
+            <button class="primary" id="save">Save</button>
           </div>
           <p class="saved" id="saved" role="status" hidden></p>
           <p class="note" id="save-note"></p>
@@ -183,8 +224,8 @@
           <label for="code">Code</label>
           <input id="code" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text">
           <div class="row">
-            <button class="primary" id="submit">Sign in</button>
             <button class="secondary" id="cancel">Cancel</button>
+            <button class="primary" id="submit">Sign in</button>
           </div>
           <p class="note">No tab opened? <button class="text" id="reopen">Open the sign-in again ↗</button></p>
           <p class="note">Different Google account in this browser? <button class="text" id="copy">Copy the link</button> and open it in a private window.</p>
@@ -202,8 +243,8 @@
       </div>
     </div>
 
-    <div class="card">
-      <h1>Console</h1>
+    <div class="card sec" id="sec-look" role="tabpanel" aria-labelledby="nav-look" hidden>
+      <h1>Console look</h1>
       <p class="hint">How the Console tab looks. Claude keeps running when you change it.</p>
       <dl>
         <dt><label for="theme">Theme</label></dt>
@@ -216,21 +257,77 @@
       <p class="error" id="look-error" role="alert" hidden></p>
     </div>
 
-    <div class="card">
-      <h1>Remote console</h1>
-      <p class="hint">Another computer's console reaching this one over ssh, set by the remote_key and remote_allow_from options.</p>
-      <dl>
-        <dt>Status</dt>
-        <dd id="remote-state"></dd>
-        <dt class="remote-on" hidden>From</dt>
-        <dd class="remote-on" id="remote-from" hidden></dd>
-        <dt class="remote-on" hidden>Host key</dt>
-        <dd class="remote-on" hidden><code id="remote-host"></code></dd>
-      </dl>
-      <p class="note remote-on" hidden>The other computer should show this host key the first time it connects. If the app was installed again, it has a new one.</p>
+    <div class="card sec" id="sec-remote" role="tabpanel" aria-labelledby="nav-remote" hidden>
+      <div class="sec-head"><h1>Remote console</h1><span class="chip" id="remote-chip"></span></div>
+      <p class="hint">Lets one other computer drive this Console over ssh, for example a dashboard of your own Claude consoles. Off by default: the port stays closed and nothing listens.</p>
+      <p class="banner" id="remote-option" hidden>Set by the app's remote_key and remote_allow_from options. To set it here instead, clear both on the Configuration tab and restart the app.</p>
+      <p class="banner" id="remote-refused" hidden></p>
+
+      <div id="r-off-plain" hidden>
+        <p class="note">Most people never need this.</p>
+        <div class="row"><button class="primary" id="r-enable">Enable…</button></div>
+      </div>
+      <div id="r-off-kept" hidden>
+        <dl>
+          <dt>Kept key</dt><dd id="r-kept-key"></dd>
+          <dt>Connects from</dt><dd id="r-kept-from"></dd>
+        </dl>
+        <div class="row">
+          <button class="secondary danger" id="r-forget">Remove access</button>
+          <button class="secondary" id="r-change-off">Change…</button>
+          <button class="primary" id="r-on-again">Turn on</button>
+        </div>
+      </div>
+
+      <div id="r-form" hidden>
+        <dl>
+          <dt><label for="r-key">Public key</label></dt>
+          <dd><textarea id="r-key" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="ssh-ed25519 AAAA… name"></textarea>
+            <span class="sm" id="r-key-note">One ssh-ed25519 public key line from the other computer. Never its private key.</span></dd>
+          <dt><label for="r-from">Connects from</label></dt>
+          <dd><input id="r-from" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="192.168.1.20">
+            <span class="sm">Its address, a network such as 192.168.1.0/24, or several, comma-separated.</span></dd>
+          <dt>Port</dt>
+          <dd>2248 <span class="sm">(change it under the app's Network settings)</span></dd>
+        </dl>
+        <p class="note">The port opens within a few seconds. Claude keeps running.</p>
+        <div class="row">
+          <button class="secondary" id="r-cancel">Cancel</button>
+          <button class="primary" id="r-turn-on">Turn on</button>
+        </div>
+      </div>
+
+      <div id="r-on" hidden>
+        <dl>
+          <dt>Connects from</dt><dd id="r-from-v"></dd>
+          <dt>Its key</dt><dd id="r-key-v"></dd>
+          <dt>Host key</dt><dd><code id="remote-host"></code> <button class="secondary small" id="r-show">Show</button></dd>
+          <dt>Last login</dt><dd id="r-last"></dd>
+        </dl>
+        <p class="note">Show reveals this app's fingerprint, to check on the other computer the first time it connects. <b>Turn off</b> closes the port and keeps the key for later; <b>Remove access</b> deletes the key too.</p>
+        <div class="row">
+          <button class="secondary" id="r-reset">Reset host key…</button>
+          <button class="secondary danger" id="r-remove">Remove access</button>
+          <button class="secondary" id="r-change">Change…</button>
+          <button class="secondary" id="r-off">Turn off</button>
+        </div>
+      </div>
+
+      <p class="note" id="r-pending" role="status" hidden>Applying… the port opens or closes within a few seconds.</p>
+      <p class="error" id="remote-error" role="alert" hidden></p>
+    </div>
+      </div>
     </div>
   </section>
 </main>
+<dialog id="confirm" aria-labelledby="confirm-title">
+  <h1 id="confirm-title"></h1>
+  <div id="confirm-body"></div>
+  <div class="row">
+    <button class="secondary" id="confirm-cancel">Cancel</button>
+    <button class="primary" id="confirm-ok"></button>
+  </div>
+</dialog>
 <script type="module" src="app.js"></script>
 </body>
 </html>

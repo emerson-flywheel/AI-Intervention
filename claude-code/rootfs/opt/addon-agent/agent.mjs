@@ -9,6 +9,7 @@ import {
   ATTACH_CONFIG, CLAUDE_DIR, CONSOLE, HERDR, NAME_RE, SESSION, addGuard, consolePane, consoleState,
   dropGuard, dropRun, guardedShell, herdr, paneLines, readRun, seatName, sleep, stopClaude,
 } from './lib.mjs';
+import { stampLogin } from './keyline.mjs';
 import { LoginError, seatLogin, seatStatus, startLogin, submitCode, withLoginLock } from './seat.mjs';
 
 const BAD = 2;
@@ -288,6 +289,8 @@ const verbs = {
 
 export async function main(command = process.env.SSH_ORIGINAL_COMMAND ?? '') {
   let verb = null;
+  // Settings › Remote console shows when the remote side last logged in.
+  stampLogin();
   try {
     let name;
     ({ verb, name } = parse(command));

@@ -13,6 +13,12 @@ Claude Code, the official one, in your Home Assistant.
 You need Home Assistant OS or Supervised (anything with Apps), on a 64-bit Intel/AMD
 (amd64) or ARM (aarch64) box, and a Claude Pro or Max plan.
 
+## The Settings tab
+
+A menu on the left (a row of buttons on a phone) opens one section at a time: **Seat**,
+**Console look** and **Remote console**, each with its state beside it. A section's
+buttons sit at its bottom right, the main one (Save, Turn on) furthest right.
+
 ## Sign in (the Settings tab)
 
 1. Open the **Settings** tab and, in **Seat(s)**, press **Sign in at claude.ai ↗**. A new
@@ -91,7 +97,7 @@ changes; update the app (or sign in from the Console) then.
   Tap the Console to type.
 - After an app restart Claude resumes the last conversation (`--continue`).
 - When Claude exits you get a shell; leave it (`exit`) and Claude starts again.
-- **Its look** (Settings › Console): a theme and a font size. The themes are herdr's own
+- **Its look** (Settings › Console look): a theme and a font size. The themes are herdr's own
   (Catppuccin, Tokyo Night, Dracula, Nord, Gruvbox, One, Solarized, Kanagawa, Rosé Pine,
   Vesper, with light versions), each with matching terminal colours; *AI Intervention
   (default)* is the app's own look. Save writes `/data/look.json`, and the Console
@@ -104,7 +110,7 @@ changes; update the app (or sign in from the Console) then.
 |---|---|---|
 | `start_folder` | empty | The folder Claude starts in, for example a folder of your own notes and a `CLAUDE.md` under `/share`. Empty starts in `/homeassistant`. Your config stays editable either way (`--add-dir /homeassistant`). |
 | `oauth_token` | empty | Optional. A token from `claude setup-token` on another computer, to skip the sign-in. It does not renew itself, so the sign-in in Settings is recommended. The seat then shows "Signed in by the oauth_token option". |
-| `remote_key` | empty | Advanced, see below. One `ssh-ed25519` public key line. Empty keeps the port closed. |
+| `remote_key` | empty | Advanced, see below; Settings › Remote console is the easier way. One `ssh-ed25519` public key line. While set, it wins over the page. |
 | `remote_allow_from` | empty | Advanced, see below. The address(es) the key may log in from. |
 
 ## What Claude can reach
@@ -119,23 +125,37 @@ changes; update the app (or sign in from the Console) then.
 A good first question: "List my unavailable entities and tell me which ones are dead
 hardware."
 
-## Remote console (advanced, off by default)
+## Remote console (Settings › Remote console; advanced, off by default)
 
 For driving the console from another machine (for example a dashboard of your own
-Claude consoles). Leave both options empty and the port stays closed.
+Claude consoles). Off by default: the port stays closed and nothing listens.
 
-- Set `remote_key` to one `ssh-ed25519` public key line and `remote_allow_from` to the
-  address or network it logs in from (`192.168.1.20`, `192.168.1.0/24`, or several,
-  comma-separated; names and `/0` are refused). Map the port under Network (2248 by
-  default) and restart. Anything else is refused, the log says why, and the port stays
-  closed.
+- **Turning it on**: Settings › Remote console › **Enable…**, paste the other computer's
+  `ssh-ed25519` public key line, and the address or network it connects from
+  (`192.168.1.20`, `192.168.1.0/24`, or several, comma-separated; names and `/0` are
+  refused), then **Turn on**. The port opens within a few seconds with no restart, and
+  Claude keeps running. Map the port under Network if 2248 does not suit.
+- **On**, the section shows where it connects from, the key's name, the last login, and
+  the host key's fingerprint behind **Show** (hidden until you ask). **Change…** takes a
+  new address or key; **Turn off** closes the port and keeps the key for later (**Turn
+  on** again); **Remove access** deletes the key, closes the port and ends any open
+  session.
+- **Reset host key…** makes a new host key, the app's own ssh identity. Do it if the
+  app's files may have been copied. Computers that already connect will then refuse,
+  with ssh's "host identification has changed" warning, until their `known_hosts` line
+  for this app is replaced with the new fingerprint (Show it once it is made). Their own
+  keys still work; if a key is what leaked, use Remove access.
+- **The options still work**: `remote_key` and `remote_allow_from` (Configuration tab,
+  then restart) set it instead, and while `remote_key` is set they win. The section then
+  says so and changes nothing but the host key. Anything that does not pass the checks
+  is refused, the log says why, and the port stays closed.
 - The key is written as the only line of `/data/ssh/authorized_keys`:
   `from="<your addresses>",restrict,pty,command="node /opt/addon-agent/agent.mjs" <key>`.
   No forwarding of any kind, keys only, and every login runs the app's agent whatever
-  command was asked for. There is no shell.
-- The host key is made once in `/data/ssh/` and kept; the log prints its fingerprint at
-  start, and Settings › Remote console shows it (with whether the port is open and from
-  where), so the remote side can pin it. Installing the app again makes a new one.
+  command was asked for. There is no shell. A key set on the page is kept in
+  `/data/remote.json` (readable by the app only).
+- The host key is made once in `/data/ssh/` and kept until a reset; the log prints its
+  fingerprint at start. Installing the app again makes a new one too.
 - The agent answers these commands (one per login, as the ssh command): `snapshot`,
   `type <console>` (the line on stdin), `interrupt <console>`, `history <console>`,
   `attach <console>`, `off <console>`, `on <console>`, `seats`, `seat-login <seat>`,

@@ -45,13 +45,17 @@ const LOOK_SAVED = {
   late: 'Saved. If the Console still shows the old look, reload the page.',
   same: 'Saved.',
 };
-const REMOTE = {
-  unknown: 'Not known yet: the app is starting.',
-  off: 'Off. Set the remote_key option on the Configuration tab to turn it on.',
-  'refused-key': 'Off: remote_key is not one plain ssh-ed25519 public key line.',
-  'refused-from': 'Off: remote_allow_from must name the addresses the key may log in from.',
-  on: 'On',
+const REMOTE_CHIP = { on: 'On', off: 'Off', unknown: '…', 'refused-key': 'Refused', 'refused-from': 'Refused' };
+const REMOTE_REFUSED = {
+  'refused-key': 'Off: the remote_key option is not one plain ssh-ed25519 public key line.',
+  'refused-from': 'Off: the remote_allow_from option must name the addresses the key may log in from.',
 };
+const REMOTE_ERRORS = {
+  'bad-key': 'That is not one ssh-ed25519 public key line. Paste the whole .pub line from the other computer (never its private key).',
+  'bad-from': 'Name the address(es) it connects from: 192.168.1.20, a network such as 192.168.1.0/24, or several, comma-separated. Names and /0 are not taken.',
+  'by-option': 'The remote_key option sets this now. Clear it on the Configuration tab to set it here.',
+};
+const HIDDEN_KEY = 'SHA256:••••••••••••••';
 const USAGE_NOTE = {
   'by-option': 'Plan usage is not shown for a login set by the oauth_token option.',
   'login-screen': 'Claude asked to sign in, so the usage was not read. Sign in again below.',
@@ -128,6 +132,7 @@ function seatHead(s) {
   const set = s.settings || {};
   $('seat-name').textContent = set.name || s.seat || '';
   $('seat-chip').textContent = s.signedIn ? 'Signed in' : 'Signed out';
+  $('nav-seat-s').textContent = s.signedIn ? 'Signed in' : 'Signed out';
   $('seat-chip').classList.toggle('ok', s.signedIn);
   let meta = '';
   if (s.signedIn && s.byOption) meta = 'by the oauth_token option';
@@ -163,17 +168,172 @@ function seatHead(s) {
 function look(c = {}) {
   const pick = (c.themes || []).find((t) => t.id === c.theme);
   $('frame').style.background = pick?.background || '';
+  // The menu's line: the theme without its "(light)" note, and a font size other than the default.
+  const name = c.theme ? (pick?.label || '').replace(/\s*\(.*\)$/, '') : 'Default';
+  $('nav-look-s').textContent = [name, c.fontSize ? `${c.fontSize} px` : ''].filter(Boolean).join(' · ');
   if (lookDirty) return;
   options($('theme'), c.themes || [], c.theme || '');
   options($('font-size'), c.fontSizes || [], c.fontSize || '');
 }
 
+// Settings › Remote console. Off is one Enable button; on shows where from, the key's name,
+// the last login and the host key behind Show. A change is saved by the page and applied by
+// run.sh within 5 s (pending meanwhile). Set by the options: shown, not changed here.
+let remoteForm = false;
+let hostShown = false;
+let remoteNow = {};
 function remote(r = {}) {
-  $('remote-state').textContent = REMOTE[r.state] || REMOTE.unknown;
+  remoteNow = r;
   const on = r.state === 'on';
-  for (const el of document.querySelectorAll('.remote-on')) el.hidden = !on;
-  $('remote-from').textContent = r.from || '';
-  $('remote-host').textContent = r.hostKey || 'not made yet';
+  const byOption = r.source === 'option';
+  const kept = r.source === 'page' && !on && Boolean(r.keyComment || r.from);
+  $('remote-chip').textContent = REMOTE_CHIP[r.state] || REMOTE_CHIP.unknown;
+  $('remote-chip').className = `chip${on ? ' ok' : r.state?.startsWith('refused') ? '' : ' off'}`;
+  $('nav-remote-s').textContent = REMOTE_CHIP[r.state] || '';
+  $('remote-option').hidden = !byOption;
+  $('remote-refused').textContent = REMOTE_REFUSED[r.state] || '';
+  $('remote-refused').hidden = !REMOTE_REFUSED[r.state];
+  $('r-pending').hidden = !r.pending;
+  $('r-form').hidden = !remoteForm;
+  $('r-off-plain').hidden = remoteForm || on || kept || byOption;
+  $('r-off-kept').hidden = remoteForm || !kept;
+  $('r-on').hidden = remoteForm || !on;
+  const keyName = r.keyComment ? `ssh-ed25519 … ${r.keyComment}` : 'ssh-ed25519 key';
+  $('r-key-v').textContent = keyName;
+  $('r-kept-key').textContent = keyName;
+  $('r-from-v').textContent = r.from || '';
+  $('r-kept-from').textContent = r.from || '';
+  const at = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  $('r-last').textContent = r.lastLogin ? new Date(r.lastLogin).toLocaleString(undefined, at) : 'not yet';
+  for (const id of ['r-remove', 'r-change', 'r-off']) $(id).hidden = byOption;
+  for (const id of ['r-enable', 'r-on-again', 'r-forget', 'r-change-off', 'r-remove', 'r-change', 'r-off', 'r-turn-on']) {
+    $(id).disabled = Boolean(r.pending);
+  }
+  if (!on) hostShown = false;
+  if (!hostShown) {
+    $('remote-host').textContent = HIDDEN_KEY;
+    $('r-show').textContent = 'Show';
+  }
+}
+
+function remoteError(code) {
+  $('remote-error').textContent = code ? REMOTE_ERRORS[code] || MESSAGES[code] || MESSAGES.failed : '';
+  $('remote-error').hidden = !code;
+}
+
+async function remoteAct(path, body = {}) {
+  remoteError(null);
+  const r = await post(path, body);
+  if (!r.saved) {
+    remoteError(r.error);
+    return false;
+  }
+  await refresh();
+  return true;
+}
+
+function openRemoteForm(prefill) {
+  remoteForm = true;
+  remoteError(null);
+  $('r-key').value = '';
+  $('r-from').value = prefill ? remoteNow.from || '' : '';
+  // Change… on a key set here: the key can stay as it is, only the addresses change.
+  const keep = prefill && remoteNow.source === 'page' && Boolean(remoteNow.from);
+  $('r-key-note').textContent = keep
+    ? 'Leave empty to keep the key it has now, or paste a new ssh-ed25519 public key line.'
+    : 'One ssh-ed25519 public key line from the other computer. Never its private key.';
+  remote(remoteNow);
+  (keep ? $('r-from') : $('r-key')).focus();
+}
+
+async function turnOn() {
+  const key = $('r-key').value.trim();
+  if (await remoteAct('api/remote/enable', { ...(key ? { key } : {}), from: $('r-from').value })) {
+    remoteForm = false;
+    remote(remoteNow);
+  }
+}
+
+// A question before a step that cannot be undone from here: resolves true on its main button.
+function confirmStep(title, body, ok) {
+  const d = $('confirm');
+  $('confirm-title').textContent = title;
+  $('confirm-body').replaceChildren(...body);
+  $('confirm-ok').textContent = ok;
+  return new Promise((resolve) => {
+    const done = (v) => {
+      d.close();
+      $('confirm-ok').onclick = null;
+      $('confirm-cancel').onclick = null;
+      resolve(v);
+    };
+    $('confirm-ok').onclick = () => done(true);
+    $('confirm-cancel').onclick = () => done(false);
+    d.oncancel = () => done(false);
+    d.showModal();
+  });
+}
+
+function para(text) {
+  const p = document.createElement('p');
+  p.textContent = text;
+  return p;
+}
+
+function list(items) {
+  const ul = document.createElement('ul');
+  for (const t of items) {
+    const li = document.createElement('li');
+    li.textContent = t;
+    ul.append(li);
+  }
+  return ul;
+}
+
+async function resetHostKey() {
+  const yes = await confirmStep('Reset the host key?', [
+    para("This app gets a new ssh identity. Do it if the app's files may have been copied (an old backup shared, a disk lost)."),
+    list([
+      'Computers that already connect will refuse next time, with ssh\'s "host identification has changed" warning.',
+      "On each one, remove the old line for this app from known_hosts and accept the new fingerprint (Show, once it is made).",
+      'Their own keys still work. If a key is what leaked, use Remove access instead.',
+    ]),
+  ], 'Reset host key');
+  if (yes) {
+    hostShown = false;
+    await remoteAct('api/remote/reset-hostkey');
+  }
+}
+
+async function removeAccess() {
+  const yes = await confirmStep('Remove access?', [
+    para("The other computer's key is deleted and the port closes. Its open session ends. To connect again it needs to be set up from the start."),
+  ], 'Remove access');
+  if (yes) await remoteAct('api/remote/remove');
+}
+
+async function toggleHostKey() {
+  if (hostShown) {
+    hostShown = false;
+    return remote(remoteNow);
+  }
+  try {
+    const r = await (await fetch('api/remote/hostkey', { cache: 'no-store' })).json();
+    hostShown = true;
+    $('remote-host').textContent = r.hostKey || 'not made yet';
+    $('r-show').textContent = 'Hide';
+  } catch {
+    remoteError('failed');
+  }
+}
+
+// The Settings menu: one section at a time.
+function selectSection(name) {
+  for (const b of document.querySelectorAll('.nav button')) {
+    const on = b.dataset.sec === name;
+    b.setAttribute('aria-selected', String(on));
+    $(`sec-${b.dataset.sec}`).hidden = !on;
+  }
 }
 
 // Plan usage: a bar per limit (the 5-hour session, the week, a model's own week), each with
@@ -499,7 +659,33 @@ $('open-console').addEventListener('click', async () => {
   $('v-done').hidden = true;
   await refresh();
 });
+for (const b of document.querySelectorAll('.nav button')) {
+  b.addEventListener('click', () => {
+    selectSection(b.dataset.sec);
+    refresh();
+  });
+}
+$('r-enable').addEventListener('click', () => openRemoteForm(false));
+$('r-change').addEventListener('click', () => openRemoteForm(true));
+$('r-change-off').addEventListener('click', () => openRemoteForm(true));
+$('r-cancel').addEventListener('click', () => {
+  remoteForm = false;
+  remoteError(null);
+  remote(remoteNow);
+});
+$('r-turn-on').addEventListener('click', turnOn);
+$('r-on-again').addEventListener('click', () => remoteAct('api/remote/enable', { from: remoteNow.from || '' }));
+$('r-off').addEventListener('click', () => remoteAct('api/remote/off'));
+$('r-remove').addEventListener('click', removeAccess);
+$('r-forget').addEventListener('click', removeAccess);
+$('r-reset').addEventListener('click', resetHostKey);
+$('r-show').addEventListener('click', toggleHostKey);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refresh();
 });
+// While Settings is open, read the state again now and then, so a change run.sh applied
+// (the remote console's port, a new host key) shows without a reload.
+setInterval(() => {
+  if (!document.hidden && !$('settings').hidden) refresh();
+}, 3000);
 refresh();

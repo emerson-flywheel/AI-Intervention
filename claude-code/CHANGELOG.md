@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0 — 2026-10-25
+
+- **Settings has a menu.** Seat, Console look and Remote console each open on their own,
+  with their state beside them in the menu (a row of buttons on a phone). The Console and
+  Settings tabs stay as they were.
+- **Buttons sit at the bottom right**, the main one (Save, Turn on, Sign in) furthest right.
+- **Remote console: off until you ask for it, and set up on the page.** **Enable…** takes
+  the other computer's public key and its address; it turns on within a few seconds with
+  no restart. Once on, the host key's fingerprint stays hidden until you press **Show**.
+  **Reset host key…** makes a new one (it says first what that does to computers that
+  already connect), **Remove access** deletes the key and ends any open session, and
+  **Turn off** closes the port and keeps the key. The section also shows the last login.
+  The `remote_key` / `remote_allow_from` options still work and win while set.
+
 ## 0.3.9 — 2026-10-25
 
 - **The Console's text gets the whole width.** No scrollbar down the right (herdr's pane
