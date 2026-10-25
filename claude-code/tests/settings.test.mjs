@@ -107,33 +107,67 @@ describe('seat settings', () => {
     sb.cleanup();
   });
 
-  test('permission mode: offered, saved where Claude Code reads it, other permissions kept', async () => {
+  // 0.4.3: permission levels with names in place of Claude Code's mode names.
+  const save = (level, extra = '') =>
+    `return saveSeatSettings({ name: '', model: '', thinking: '', permissionLevel: ${JSON.stringify(level)}${extra} })`;
+  const codeOf = (sb, level, extra = '') =>
+    inBox(sb, `try { ${save(level, extra).replace('return ', '')}; return 'saved'; } catch (e) { return e.code; }`);
+
+  test('permission level: four, each saved as the Claude Code mode it stands for; other permissions kept', async () => {
     const sb = sandbox({ seat: null });
     let s = await inBox(sb, 'return seatSettings()');
-    assert.equal(s.permissionMode, '');
-    assert.deepEqual(s.permissionModes.map((m) => m.id), ['', 'acceptEdits', 'plan']);
+    assert.equal(s.permissionLevel, 'copilot', 'no mode set: Co-pilot, which asks first');
+    assert.deepEqual(s.permissionLevels.map((m) => [m.id, m.label]), [
+      ['wheels', 'Training wheels'], ['copilot', 'Co-pilot'], ['autopilot', 'Autopilot'], ['jarvis', 'Jarvis mode'],
+    ]);
+    for (const l of s.permissionLevels) assert.ok(l.description, l.id);
     writeFileSync(settingsFile(sb), JSON.stringify({ theme: 'dark', permissions: { allow: ['Read'] } }));
-    const r = await inBox(sb, "return saveSeatSettings({ name: '', model: '', thinking: '', permissionMode: 'acceptEdits' })");
-    assert.deepEqual(r, { changed: true }, 'a new mode restarts Claude');
+    assert.deepEqual(await inBox(sb, save('autopilot')), { changed: true }, 'a new level restarts Claude');
     assert.deepEqual(readSettings(sb), { theme: 'dark', permissions: { allow: ['Read'], defaultMode: 'acceptEdits' } });
-    s = await inBox(sb, 'return seatSettings()');
-    assert.equal(s.permissionMode, 'acceptEdits');
-    const same = await inBox(sb, "return saveSeatSettings({ name: 'x', model: '', thinking: '', permissionMode: 'acceptEdits' })");
-    assert.deepEqual(same, { changed: false });
-    await inBox(sb, "return saveSeatSettings({ name: '', model: '', thinking: '', permissionMode: '' })");
-    assert.deepEqual(readSettings(sb), { theme: 'dark', permissions: { allow: ['Read'] } }, 'Default removes only defaultMode');
+    assert.equal((await inBox(sb, 'return seatSettings()')).permissionLevel, 'autopilot');
+    assert.deepEqual(await inBox(sb, save('autopilot')), { changed: false });
+    await inBox(sb, save('wheels'));
+    assert.deepEqual(readSettings(sb).permissions, { allow: ['Read'], defaultMode: 'plan' });
+    assert.equal((await inBox(sb, 'return seatSettings()')).permissionLevel, 'wheels');
+    await inBox(sb, save('copilot'));
+    assert.deepEqual(readSettings(sb), { theme: 'dark', permissions: { allow: ['Read'] } }, 'Co-pilot removes only defaultMode');
     sb.cleanup();
   });
 
-  test('permission mode: a mode set elsewhere that is not offered shows as Default and is kept', async () => {
+  test('permission level: a mode set elsewhere shows as Co-pilot and is kept; unknown levels refused', async () => {
     const sb = sandbox({ seat: null });
     writeFileSync(settingsFile(sb), JSON.stringify({ permissions: { defaultMode: 'auto' } }));
-    assert.equal((await inBox(sb, 'return seatSettings()')).permissionMode, '');
-    await inBox(sb, "return saveSeatSettings({ name: 'n', model: '', thinking: '', permissionMode: '' })");
+    assert.equal((await inBox(sb, 'return seatSettings()')).permissionLevel, 'copilot');
+    await inBox(sb, "return saveSeatSettings({ name: 'n', model: '', thinking: '', permissionLevel: 'copilot' })");
     assert.deepEqual(readSettings(sb), { permissions: { defaultMode: 'auto' } }, 'an unchanged save writes nothing');
-    const code = async (mode) => (await inBox(sb, `try { saveSeatSettings({ name: '', model: '', thinking: '', permissionMode: ${JSON.stringify(mode)} }); return 'saved'; } catch (e) { return e.code; }`));
-    assert.equal(await code('bypassPermissions'), 'bad-mode');
-    assert.equal(await code('auto'), 'bad-mode');
+    await inBox(sb, "return saveSeatSettings({ name: 'n', model: '', thinking: '' })");
+    assert.deepEqual(readSettings(sb), { permissions: { defaultMode: 'auto' } }, 'no level: the current one is kept');
+    assert.equal(await codeOf(sb, 'bypassPermissions'), 'bad-level');
+    assert.equal(await codeOf(sb, 'acceptEdits'), 'bad-level');
+    sb.cleanup();
+  });
+
+  test('Jarvis mode: asks once, allows every tool, keeps Snapshot on; leaving takes back only its own rules', async () => {
+    const sb = sandbox({ seat: null });
+    writeFileSync(settingsFile(sb), JSON.stringify({ theme: 'dark', permissions: { allow: ['Bash', 'Read'], deny: ['Bash(rm -rf /:*)'] } }));
+    assert.equal(await codeOf(sb, 'jarvis'), 'jarvis-confirm', 'not without the confirmation');
+    assert.equal(existsSync(join(sb.data, 'jarvis.json')), false);
+    assert.deepEqual(await inBox(sb, save('jarvis', ', confirmJarvis: true')), { changed: true });
+    let s = readSettings(sb);
+    assert.equal(s.permissions.defaultMode, 'acceptEdits');
+    assert.deepEqual(s.permissions.allow, ['Bash', 'Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch']);
+    assert.deepEqual(s.permissions.deny, ['Bash(rm -rf /:*)'], 'deny rules still win');
+    assert.ok(s.hooks.PreToolUse.some((e) => e.hooks.some((h) => h.command === '/opt/addon-agent/snapshot.sh')), 'Snapshot on');
+    assert.equal((await inBox(sb, 'return seatSettings()')).permissionLevel, 'jarvis');
+    assert.deepEqual(await inBox(sb, save('jarvis')), { changed: false }, 'already Jarvis: no second ask');
+
+    assert.deepEqual(await inBox(sb, save('copilot')), { changed: true });
+    s = readSettings(sb);
+    assert.deepEqual(s.permissions, { allow: ['Bash', 'Read'], deny: ['Bash(rm -rf /:*)'] }, 'the user\'s own Bash rule stays');
+    assert.ok(s.hooks.PreToolUse.length, 'Snapshot stays on until the user switches it off');
+    assert.equal(s.theme, 'dark');
+    assert.equal(existsSync(join(sb.data, 'jarvis.json')), false);
+    assert.equal((await inBox(sb, 'return seatSettings()')).permissionLevel, 'copilot');
     sb.cleanup();
   });
 

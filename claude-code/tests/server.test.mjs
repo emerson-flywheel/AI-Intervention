@@ -202,7 +202,8 @@ describe('page server', () => {
 
   test('sign-in through the API: link, wrong code, right code; never the token or code back', async () => {
     let s = JSON.parse((await req(srv.port, '/api/state')).body);
-    const { settings, console: look, remote, view, usage, routines, tools, telegram, ...rest } = s;
+    const { settings, console: look, remote, view, usage, routines, tools, customTools, telegram, ...rest } = s;
+    assert.deepEqual(customTools, []);
     assert.deepEqual(rest, { seat: 'home', signedIn: false, lapsed: false, plan: null, since: null, byOption: false, login: 'none' });
     assert.deepEqual(usage, { show: false, why: 'signed-out', reading: null, probing: false, error: null });
     assert.equal(settings.provider, 'anthropic');
@@ -412,7 +413,7 @@ describe('page server', () => {
     let list = JSON.parse((await req(srv.port, '/api/state')).body).routines;
     assert.deepEqual(list.map((r) => [r.id, r.scheduleLabel, r.enabled]), [['morning-health-check', 'Every day 7:00 AM', true]]);
 
-    for (const p of ['/api/routines/run', '/api/routines/schedule', '/api/routines/enabled', '/api/routines/console', '/api/tools']) {
+    for (const p of ['/api/routines/run', '/api/routines/schedule', '/api/routines/enabled', '/api/routines/console', '/api/tools', '/api/tools/custom']) {
       const plain = await req(srv.port, p, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } });
       assert.equal(plain.status, 403, `${p} needs the page header`);
     }
@@ -445,6 +446,16 @@ describe('page server', () => {
     assert.match(typed[0], /Run my routine "Morning health check" from \/data\/routines\/morning-health-check\.md/);
     assert.match(typed[1], /Apply the fixes from the last run of my routine "Morning health check"/);
     assert.match(typed[2], /Make a routine called "Morning health check", every day at 7:00/);
+    // 0.4.3: five more starters, drawn from the jobs this app has been asked to do.
+    const starters = {
+      update: 'Update review', backup: 'Backup check', logs: 'Log noise review', integrations: 'Integration health',
+      silent: 'Silent stops', spook: 'Fix Spook', names: 'Suggest better names',
+    };
+    for (const [starter, name] of Object.entries(starters)) {
+      assert.deepEqual(JSON.parse((await post(srv.port, '/api/routines/console', { kind: 'starter', starter })).body), { typed: true }, starter);
+      const line = sb.herdr().panes['w1:p1'].lines.filter((l) => l.startsWith('typed:')).at(-1);
+      assert.ok(line.includes(`Make a routine called "${name}`), starter);
+    }
     const odd = await post(srv.port, '/api/routines/console', { kind: 'starter', starter: 'rm -rf' });
     assert.deepEqual([odd.status, JSON.parse(odd.body)], [400, { error: 'bad-starter' }]);
     rmSync(dir, { recursive: true, force: true });
@@ -467,6 +478,41 @@ describe('page server', () => {
     await post(srv.port, '/api/tools', { snapshot: false, web: true });
     rmSync(join(sb.data, 'claude', 'settings.json'), { force: true });
     rmSync(relaunch, { force: true });
+  });
+
+  test('api/tools/custom: a tool Claude added, off until switched on here; Claude restarts to pick it up', async () => {
+    const relaunch = join(sb.run, 'relaunch');
+    rmSync(relaunch, { force: true });
+    mkdirSync(join(sb.data, 'tools'), { recursive: true });
+    writeFileSync(join(sb.data, 'tools', 'weather.json'),
+      JSON.stringify({ name: 'Weather', description: 'Forecasts.', kind: 'mcp', config: { command: 'npx', args: ['weather-mcp'] } }));
+    let list = JSON.parse((await req(srv.port, '/api/state')).body).customTools;
+    assert.deepEqual(list.map((t) => [t.id, t.on]), [['weather', false]]);
+    const missing = await post(srv.port, '/api/tools/custom', { id: 'nope', on: true });
+    assert.deepEqual([missing.status, JSON.parse(missing.body)], [404, { error: 'no-tool' }]);
+    const on = await post(srv.port, '/api/tools/custom', { id: 'weather', on: true });
+    assert.deepEqual([on.status, JSON.parse(on.body)], [200, { saved: true, relaunched: 'now' }]);
+    assert.ok(existsSync(relaunch));
+    rmSync(relaunch);
+    list = JSON.parse((await req(srv.port, '/api/state')).body).customTools;
+    assert.equal(list[0].on, true);
+    await post(srv.port, '/api/tools/custom', { id: 'weather', on: false });
+    rmSync(join(sb.data, 'tools'), { recursive: true, force: true });
+    rmSync(relaunch, { force: true });
+  });
+
+  test('api/seat/settings: Jarvis mode needs its confirmation and locks Snapshot on', async () => {
+    const body = { name: 'home', model: '', thinking: '', permissionLevel: 'jarvis' };
+    const no = await post(srv.port, '/api/seat/settings', body);
+    assert.deepEqual([no.status, JSON.parse(no.body)], [400, { error: 'jarvis-confirm' }]);
+    const yes = await post(srv.port, '/api/seat/settings', { ...body, confirmJarvis: true });
+    assert.equal(yes.status, 200);
+    const s = JSON.parse((await req(srv.port, '/api/state')).body);
+    assert.equal(s.settings.permissionLevel, 'jarvis');
+    assert.deepEqual([s.tools[0].on, s.tools[0].locked], [true, true]);
+    await post(srv.port, '/api/seat/settings', { ...body, permissionLevel: 'copilot' });
+    rmSync(join(sb.data, 'claude', 'settings.json'), { force: true });
+    rmSync(join(sb.run, 'relaunch'), { force: true });
   });
 
   test('api/telegram/*: the token checked and kept out of the state; pair, switches, forget', async () => {

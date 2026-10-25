@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { join } from 'node:path';
@@ -314,22 +314,26 @@ describe('Seat sign-in in a browser', { skip }, () => {
       ]);
       assert.equal(await frame.inputValue('#model'), '');
       assert.equal(await frame.inputValue('#thinking'), '');
-      assert.equal(await frame.inputValue('#mode'), '');
-      assert.deepEqual(await frame.$$eval('#mode option', (os) => os.map((o) => o.value)), ['', 'acceptEdits', 'plan']);
+      // Permission levels with names (0.4.3), each with its line underneath.
+      assert.equal(await frame.inputValue('#level'), 'copilot');
+      assert.deepEqual(await frame.$$eval('#level option', (os) => os.map((o) => o.textContent)),
+        ['Training wheels', 'Co-pilot', 'Autopilot', 'Jarvis mode']);
+      assert.match(await frame.textContent('#level-d'), /asks before each change/);
 
       assert.deepEqual(await frame.$$eval('#model option', (os) => os.map((o) => o.textContent)),
         ['Default (your plan picks)', 'Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5', 'Fable 5.1']);
       await frame.fill('#name', 'Kitchen');
       await frame.selectOption('#model', 'claude-sonnet-5-5');
       await frame.selectOption('#thinking', 'high');
-      await frame.selectOption('#mode', 'acceptEdits');
+      await frame.selectOption('#level', 'autopilot');
+      assert.match(await frame.textContent('#level-d'), /edits files without asking/);
       await frame.click('#save');
       await frame.waitForSelector('text=Saved. Claude in the Console was started again with these settings; the conversation is kept.');
       // The row takes the new name from the refresh that follows the save.
       await frame.waitForSelector('#seat-name:text-is("Kitchen")');
       assert.equal(await frame.inputValue('#model'), 'claude-sonnet-5-5');
       assert.equal(await frame.inputValue('#thinking'), 'high');
-      assert.equal(await frame.inputValue('#mode'), 'acceptEdits');
+      assert.equal(await frame.inputValue('#level'), 'autopilot');
       const saved = JSON.parse(readFileSync(settingsFile, 'utf8'));
       assert.deepEqual([saved.theme, saved.model, saved.effortLevel, saved.permissions?.defaultMode],
         ['dark', 'claude-sonnet-5-5', 'high', 'acceptEdits']);
@@ -607,6 +611,9 @@ describe('Seat sign-in in a browser', { skip }, () => {
       // The main button last, at the right.
       const ids = await frame.$$eval(`${card} .row:last-child button`, (bs) => bs.map((b) => b.className));
       assert.match(ids.at(-1), /primary/);
+      // The starters stay offered under the list (0.4.3: eight).
+      assert.match(await frame.textContent('#rt-starters-note'), /^More ideas/);
+      assert.equal((await frame.$$('[data-starter]:visible')).length, 8);
 
       await frame.selectOption(`${card} .rt-kind`, 'weekdays');
       await frame.fill(`${card} .rt-time`, '06:30');
@@ -650,10 +657,75 @@ describe('Seat sign-in in a browser', { skip }, () => {
       const settings = JSON.parse(readFileSync(join(sb.data, 'claude', 'settings.json'), 'utf8'));
       assert.equal(settings.hooks.PreToolUse.at(-1).hooks[0].command, '/opt/addon-agent/snapshot.sh');
       await frame.waitForSelector('#nav-tools-s:text("2 on")');
+
+      // A tool Claude added: listed, off until switched on here.
+      assert.ok(await frame.isVisible('#ct-empty'));
+      mkdirSync(join(sb.data, 'tools'), { recursive: true });
+      writeFileSync(join(sb.data, 'tools', 'weather.json'), JSON.stringify({
+        name: 'Weather service', description: 'Reads the forecast for automations.', kind: 'mcp',
+        config: { command: 'npx', args: ['weather-mcp'], env: { WEATHER_KEY: 'do-not-show-me' } },
+      }));
+      await frame.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      const ct = '.ct[data-tool="weather"]';
+      await frame.waitForSelector(ct, { timeout: 8000 });
+      assert.equal(await frame.textContent(`${ct} .run`), 'Runs: npx weather-mcp');
+      assert.doesNotMatch(await frame.textContent('#sec-tools'), /do-not-show-me/);
+      assert.equal(await frame.textContent(`${ct} button`), 'Switch on');
       await shot(page, frame, 'settings-tools-1280-light');
+      await frame.click(`${ct} button`);
+      await frame.waitForSelector('#ct-saved:visible');
+      await frame.waitForSelector(`${ct} button:text("Switch off")`);
+      const mcp = JSON.parse(readFileSync(join(sb.data, 'claude', 'addon-mcp.json'), 'utf8'));
+      assert.deepEqual(Object.keys(mcp.mcpServers), ['weather']);
+      await frame.waitForSelector('#nav-tools-s:text("3 on")');
+      await frame.click(`${ct} button`);
+      await frame.waitForSelector(`${ct} button:text("Switch on")`);
     } finally {
       for (const c of contexts) await c.close().catch(() => {});
       rmSync(dir, { recursive: true, force: true });
+      rmSync(join(sb.data, 'tools'), { recursive: true, force: true });
+      rmSync(join(sb.data, 'claude', 'settings.json'), { force: true });
+      rmSync(join(sb.run, 'relaunch'), { force: true });
+    }
+  });
+
+  test('Jarvis mode: one question first; then every tool allowed and Snapshot locked on', async () => {
+    const contexts = [];
+    try {
+      const { context, page, frame } = await open();
+      contexts.push(context);
+      await frame.click('#tab-settings');
+      await frame.waitForSelector('#level option[value="jarvis"]', { state: 'attached' });
+      await frame.selectOption('#level', 'jarvis');
+      await frame.click('#save');
+      await frame.waitForSelector('#confirm[open]');
+      assert.equal(await frame.textContent('#confirm-title'), 'Turn on Jarvis mode?');
+      await shot(page, frame, 'settings-jarvis-confirm-1280-light');
+      await frame.click('#confirm-cancel');
+      await frame.waitForSelector('#confirm:not([open])', { state: 'attached' });
+      assert.equal(existsSync(join(sb.data, 'jarvis.json')), false, 'Cancel saves nothing');
+
+      await frame.click('#save');
+      await frame.waitForSelector('#confirm[open]');
+      await frame.click('#confirm-ok');
+      await frame.waitForSelector('#saved:visible');
+      const s = JSON.parse(readFileSync(join(sb.data, 'claude', 'settings.json'), 'utf8'));
+      assert.equal(s.permissions.defaultMode, 'acceptEdits');
+      assert.ok(s.permissions.allow.includes('Bash'));
+      await frame.click('#nav-tools');
+      await frame.waitForSelector('#tool-snapshot:disabled', { state: 'attached' });
+      assert.equal(await frame.isChecked('#tool-snapshot'), true);
+      await shot(page, frame, 'settings-tools-jarvis-1280-light');
+
+      await frame.click('#nav-seat');
+      await frame.selectOption('#level', 'copilot');
+      await frame.click('#save');
+      for (let i = 0; i < 50 && existsSync(join(sb.data, 'jarvis.json')); i++) await frame.waitForTimeout(100);
+      assert.equal(existsSync(join(sb.data, 'jarvis.json')), false, 'leaving Jarvis needs no question');
+      assert.equal(await frame.isVisible('#confirm'), false);
+    } finally {
+      for (const c of contexts) await c.close().catch(() => {});
+      rmSync(join(sb.data, 'jarvis.json'), { force: true });
       rmSync(join(sb.data, 'claude', 'settings.json'), { force: true });
       rmSync(join(sb.run, 'relaunch'), { force: true });
     }

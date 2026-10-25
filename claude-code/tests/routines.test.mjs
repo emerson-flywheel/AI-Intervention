@@ -114,12 +114,15 @@ test('runRoutine: claude -p in plan mode on the routine\'s instructions; the res
   process.env.FAKE_ARGS_FILE = argsFile;
   process.env.FAKE_RESULT = 'Summary: 2 things to look at\nFixes waiting: 1\n\n- Kitchen motion sensor unavailable for 9 h.';
   try {
+    // The tools the user switched on in Settings › Tools (0.4.3) reach the run too.
+    writeFileSync(join(sb.data, 'claude', 'addon-mcp.json'), '{"mcpServers":{}}\n');
     const result = await r.runRoutine('morning-health-check', { claude: sb.env.CLAUDE_BIN, env: sb.env });
     assert.deepEqual([result.ok, result.summary, result.fixes], [true, '2 things to look at', 1]);
     const args = readFileSync(argsFile, 'utf8');
     assert.match(args, /-p/);
     assert.match(args, /--permission-mode plan/);
     assert.match(args, /--output-format json/);
+    assert.ok(args.includes(`--mcp-config=${join(sb.data, 'claude', 'addon-mcp.json')}`), args);
     const saved = JSON.parse(readFileSync(join(sb.data, 'routines', '.results', 'morning-health-check.json'), 'utf8'));
     assert.equal(saved.summary, '2 things to look at');
     assert.match(saved.report, /Kitchen motion sensor/);
