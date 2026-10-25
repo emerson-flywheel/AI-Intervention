@@ -16,6 +16,9 @@ env:
   HERDR_VERSION: "0.9.3"
   HERDR_SHA256: 18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7
   GITLEAKS_VERSION: "8.30.1"
+  # The same ttyd as the Dockerfile's (1.7.7, x86_64).
+  TTYD_VERSION: "1.7.7"
+  TTYD_SHA256: 8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
 
 jobs:
   test:
@@ -33,6 +36,11 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/herdr" "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64"
           echo "${HERDR_SHA256}  $RUNNER_TEMP/herdr" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/herdr"
+      - name: ttyd (pinned, checksum checked)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/ttyd" "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64"
+          echo "${TTYD_SHA256}  $RUNNER_TEMP/ttyd" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/ttyd"
       - name: Unit, flows and the real herdr
         working-directory: claude-code
         run: HERDR_REAL="$RUNNER_TEMP/herdr" node --test 'tests/*.test.mjs'
@@ -42,6 +50,11 @@ jobs:
           npm install --no-save --prefix "$RUNNER_TEMP/pw" playwright@1.59.1
           npx --prefix "$RUNNER_TEMP/pw" playwright install --with-deps chromium
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright/index.mjs" node --test tests/browser/signin.browser.mjs
+      - name: The Console on a phone (touch scrolling, real herdr and ttyd)
+        working-directory: claude-code
+        run: |
+          HERDR_REAL="$RUNNER_TEMP/herdr" TTYD_REAL="$RUNNER_TEMP/ttyd" \
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright/index.mjs" node --test tests/browser/console-touch.browser.mjs
 
   lint:
     name: App linter

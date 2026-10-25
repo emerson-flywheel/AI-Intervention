@@ -167,6 +167,7 @@ describe('page server', () => {
       for (const u of urls) assert.ok(!/^(\/|https?:)/.test(u), `relative: ${u}`);
     }
     assert.equal((await req(srv.port, '/linkcheck.mjs')).status, 200);
+    assert.equal((await req(srv.port, '/touchscroll.mjs')).status, 200);
     assert.equal((await req(srv.port, '/../seat.mjs')).status, 404);
     assert.equal((await req(srv.port, '/seat.mjs')).status, 404);
   });

@@ -7,6 +7,7 @@ Node 22, no npm dependencies, and tmux. Run from `claude-code/`.
 | Unit + flows (link and code checks, agent verbs and refusals, sign-in with the fake `claude` in a real tmux, page server and proxy, key line and remote status, seat settings, the Console's look) | `node --test 'tests/*.test.mjs'` | tmux, ssh-keygen |
 | The same, plus the real herdr (console bootstrap, the loop, the guard, the pane gate, attach, every theme's config) | `HERDR_REAL=/path/to/herdr-0.9.3 node --test 'tests/*.test.mjs'` | herdr 0.9.3 binary |
 | The Seat sign-in in a real browser, inside an ingress-style iframe | `PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs SCREENSHOT_DIR=/tmp/shots node --test tests/browser/signin.browser.mjs` | Playwright + Chromium; `PW_CHANNEL=chromium` for the full browser |
+| The Console on a phone (390 px, touch): a swipe scrolls herdr's scrollback, a tap then typing reaches the pane | `HERDR_REAL=/path/to/herdr TTYD_REAL=/path/to/ttyd-1.7.7 PLAYWRIGHT_MODULE=... node --test tests/browser/console-touch.browser.mjs` | herdr 0.9.3, ttyd 1.7.7, Playwright + Chromium |
 | Attach-client fuzz: the prefix + every key, then clicks over the whole screen (~5 min) | `python3 tests/attach-fuzz.py /path/to/herdr rootfs/etc/herdr/attach.toml` → `RESULT HELD` | herdr, tmux |
 
 Without `HERDR_REAL` or Playwright those tests are skipped, and the skip says why.
