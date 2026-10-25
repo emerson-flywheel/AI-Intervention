@@ -220,7 +220,11 @@ export async function runRoutine(id, { claude = CLAUDE, env = {}, cwd } = {}) {
   let out = '';
   try {
     out = await new Promise((resolve) => {
-      const child = spawn(claude, ['-p', prompt(r), '--permission-mode', 'plan', '--output-format', 'json'], {
+      // The tools switched on in Settings › Tools (tools.mjs keeps this file).
+      const mcp = join(dirs.data, 'claude', 'addon-mcp.json');
+      const args = ['-p', prompt(r), '--permission-mode', 'plan', '--output-format', 'json'];
+      if (existsSync(mcp)) args.push(`--mcp-config=${mcp}`);
+      const child = spawn(claude, args, {
         cwd: cwd || (existsSync('/homeassistant') ? '/homeassistant' : dirs.data),
         env: { ...process.env, CLAUDE_CONFIG_DIR: join(dirs.data, 'claude'), ...env },
         stdio: ['ignore', 'pipe', 'ignore'],

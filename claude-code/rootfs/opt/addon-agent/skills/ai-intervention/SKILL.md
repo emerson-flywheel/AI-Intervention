@@ -1,6 +1,6 @@
 ---
 name: ai-intervention
-description: Make, change or remove a routine for this Home Assistant app (a named job run by hand or on a schedule, listed on Settings › Routines), and undo a change from the "Snapshot before edits" history. Use when the user says "make a routine", "make this a routine", "change my routine", "run my routine", "apply the fixes from my routine", or "undo your last change".
+description: Make, change or remove a routine for this Home Assistant app (a named job run by hand or on a schedule, listed on Settings › Routines), add a tool (an MCP server or a script, listed on Settings › Tools), and undo a change from the "Snapshot before edits" history. Use when the user says "make a routine", "make this a routine", "change my routine", "run my routine", "apply the fixes from my routine", "add a tool", "give yourself a tool for ...", "connect to <service>", or "undo your last change".
 ---
 
 # Routines
@@ -37,6 +37,60 @@ How a routine runs:
 - **Apply in Console** types "Apply the fixes from the last run of my routine ...": read
   the report from `/data/routines/.results/<id>.json` (its `report` field) and make each
   listed fix, asking before each change.
+
+# Tools
+
+A tool is one JSON file in `/data/tools/`, named by its id (lower case, digits and hyphens,
+for example `restart-zigbee.json`). The app lists every file there under Settings › Tools ›
+Added by Claude. **A new tool is off**: only the user can switch it on, on that page, and
+the app then starts you again with it. You cannot switch it on yourself; never edit
+`/data/claude/settings.json`, `/data/claude/addon-mcp.json` or `/data/claude/addon-tools.json`
+to get around that. Write exactly one of these shapes:
+
+An MCP server the app starts:
+
+```
+{
+  "name": "Weather service",
+  "description": "One plain sentence on what it gives you and why.",
+  "kind": "mcp",
+  "config": { "command": "npx", "args": ["-y", "some-mcp-server"], "env": { "API_KEY": "..." } }
+}
+```
+
+An MCP server reached by URL: `"config": { "type": "http", "url": "https://...", "headers": { ... } }`
+(`"type": "sse"` for an SSE server).
+
+A script you may then run without asking:
+
+```
+{
+  "name": "Restart Zigbee",
+  "description": "Restarts the Zigbee add-on when devices stop answering.",
+  "kind": "script",
+  "config": { "file": "restart-zigbee.sh" }
+}
+```
+
+- The script lives next to its file, in `/data/tools/` (here `/data/tools/restart-zigbee.sh`),
+  and must be executable. Switched on, it is allowed as `Bash(/data/tools/restart-zigbee.sh:*)`:
+  run it by that full path.
+- Keep `name` under 60 characters and `description` to one or two sentences (400 characters
+  at most). `env` names are letters, digits and underscores.
+- Ask the user before writing a key or password into `env` or `headers`; the page never
+  shows those values.
+- After writing it, say: "Added the tool <name>. Switch it on in Settings › Tools when you
+  want me to use it."
+- To change one, edit its file: the page then says it changed, and the old version stays in
+  use until the user switches it on again. To remove one, delete its file (and its script).
+
+# Permission levels
+
+The user picks one in Settings › Seat(s): **Training wheels** (plan mode, read only),
+**Co-pilot** (asks before each change and command), **Autopilot** (edits without asking,
+asks before commands) or **Jarvis mode** (edits and runs commands without asking; Snapshot
+before edits stays on). Never change the level yourself; when a job needs a different one,
+say so and let the user pick it.
 
 # Undoing a change (Snapshot before edits)
 

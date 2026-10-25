@@ -150,6 +150,18 @@
   .tool input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--primary); }
   .tool label { color: var(--text); margin: 0; }
   .tool .d { color: var(--muted); font-size: 13px; }
+  .tool input:disabled + div label { color: var(--muted); }
+  #level-d { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  /* Tools Claude added: each switched on or off by its own button */
+  h2.sub { font-size: 15px; font-weight: 500; margin: 18px 0 4px; }
+  .ct { display: flex; gap: 8px 12px; align-items: flex-start; flex-wrap: wrap; padding: 10px 0; }
+  .ct + .ct { border-top: 1px solid var(--line); }
+  .ct > div { flex: 1 1 240px; min-width: 0; }
+  .ct .n { font-weight: 500; overflow-wrap: anywhere; }
+  .ct .d, .ct .run { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .ct .run { font-family: ui-monospace, monospace; font-size: 12px; }
+  .ct .warn { color: var(--warn); font-size: 13px; }
+  .ct > button { margin-left: auto; }
   /* Settings › Telegram and its set-up pop-up */
   .sub { font-weight: 500; margin: 14px 0 2px; }
   .row.left { justify-content: flex-start; }
@@ -241,8 +253,8 @@
             <dd><select id="model"></select></dd>
             <dt><label for="thinking">Thinking</label></dt>
             <dd><select id="thinking"></select></dd>
-            <dt><label for="mode">Permission mode</label></dt>
-            <dd><select id="mode"></select></dd>
+            <dt><label for="level">Permission level</label></dt>
+            <dd><select id="level" aria-describedby="level-d"></select><div id="level-d"></div></dd>
           </dl>
           <div class="row">
             <button class="secondary" id="again" hidden>Sign in again</button>
@@ -305,12 +317,17 @@
       <div id="rt-list"></div>
       <div id="rt-empty" hidden>
         <p>No routines yet. Describe a job to Claude in the Console and say "make this a routine"; it shows up here.</p>
-        <p class="note">Or start from one of these. It opens in the Console, so you can adjust it before Claude saves it.</p>
-        <div class="row">
-          <button class="secondary" data-starter="health">Morning health check</button>
-          <button class="secondary" data-starter="spook">Fix Spook's repair items</button>
-          <button class="secondary" data-starter="names">Suggest better names</button>
-        </div>
+      </div>
+      <p class="note" id="rt-starters-note">Or start from one of these. It opens in the Console, so you can adjust it before Claude saves it.</p>
+      <div class="row">
+        <button class="secondary" data-starter="health">Morning health check</button>
+        <button class="secondary" data-starter="integrations">Integration health</button>
+        <button class="secondary" data-starter="backup">Backup check</button>
+        <button class="secondary" data-starter="update">Update review</button>
+        <button class="secondary" data-starter="silent">Silent stops</button>
+        <button class="secondary" data-starter="logs">Log noise review</button>
+        <button class="secondary" data-starter="spook">Fix Spook's repair items</button>
+        <button class="secondary" data-starter="names">Suggest better names</button>
       </div>
       <p class="note">Run now and the schedule only look and report; nothing changes until you press Apply in Console and say yes there.</p>
       <p class="saved" id="rt-saved" role="status" hidden></p>
@@ -324,6 +341,12 @@
       <div class="row"><button class="primary" id="save-tools">Save</button></div>
       <p class="saved" id="tools-saved" role="status" hidden></p>
       <p class="error" id="tools-error" role="alert" hidden></p>
+      <h2 class="sub">Added by Claude</h2>
+      <p class="hint">Tools Claude made for your setup: an MCP server or a script. Each stays off until you switch it on here. To add one, ask Claude in the Console, for example "add a tool that restarts the Zigbee add-on".</p>
+      <div id="ct-list"></div>
+      <p class="note" id="ct-empty">None yet.</p>
+      <p class="saved" id="ct-saved" role="status" hidden></p>
+      <p class="error" id="ct-error" role="alert" hidden></p>
     </div>
 
     <div class="card sec" id="sec-telegram" role="tabpanel" aria-labelledby="nav-telegram" hidden>

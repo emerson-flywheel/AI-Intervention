@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.3 — 2026-10-25
+
+- **Permission levels** (Settings › Seat(s)) replace the permission mode list: *Training
+  wheels* (read only), *Co-pilot* (asks first), *Autopilot* (edits without asking) and
+  *Jarvis mode* (full admin: edits and runs commands without asking). Jarvis mode asks
+  once, and keeps Snapshot before edits on so any file change can be undone.
+- **Tools Claude adds** (Settings › Tools › Added by Claude): ask Claude to add a tool, an
+  MCP server or a script, and it shows up here with what it does, off until you switch it
+  on. A later change by Claude waits for you.
+- **Five more routine starters**: Integration health, Backup check, Update review, Silent
+  stops and Log noise review. The starters now stay under the list once you have routines.
+- Routine runs get the tools you switched on.
+
 ## 0.4.2 — 2026-10-25
 
 - **Telegram** (Settings › Telegram): your own bot, set up in five steps from **Set up…**.

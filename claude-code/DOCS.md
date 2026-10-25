@@ -28,9 +28,11 @@ health check, fixing the repair items Spook found, or suggestions for clearer na
 - **Making one**: describe the job to Claude in the Console and say "make this a routine"
   (with a schedule if you like: "every day at 7", "weekdays at 6 PM", "Sundays at 9").
   Claude saves it as one small file in `/data/routines/` (name, one-line explanation,
-  schedule, instructions) and it shows up here. To change or remove one, ask Claude. With
-  no routines yet, the section offers three to start from; each opens in the Console so
-  you can adjust it first.
+  schedule, instructions) and it shows up here. To change or remove one, ask Claude.
+- **Starters**: eight to start from, under the list: Morning health check, Integration
+  health, Backup check, Update review, Silent stops (sensors and automations that went
+  quiet), Log noise review, Fix Spook's repair items, and Suggest better names. Each opens
+  in the Console as a request, so you can adjust it before Claude saves it.
 - **Listed** with its explanation, its schedule, and its last result (a summary; **Full
   report** shows the whole report). Change the schedule here (When I press Run, Every day,
   Weekdays, or one day of the week, at a time), or **Turn off** a routine to keep it off
@@ -58,7 +60,23 @@ conversation is kept.
   deny rules for both to Claude Code's settings.
 
 Both are kept in Claude Code's own settings file (`/data/claude/settings.json`); every
-other setting in it stays as it is.
+other setting in it stays as it is. In Jarvis mode, Snapshot before edits is switched on
+and cannot be switched off until you pick another permission level.
+
+**Added by Claude**: tools Claude made for your setup. Ask in the Console, for example
+"add a tool that restarts the Zigbee add-on" or "connect yourself to my weather service".
+Claude writes one small file in `/data/tools/` with a name, a one-line explanation and
+what it runs, and it shows up here **off**. Only you can switch it on:
+
+- **An MCP server**: switched on, it goes into a file the app starts Claude with
+  (`/data/claude/addon-mcp.json`), so any MCP servers you set up yourself are left alone.
+- **A script** in `/data/tools/`: switched on, Claude may run that one script without
+  asking (an allow rule in Claude Code's settings). Off takes the rule away again.
+- The page shows what each one runs, never the keys or passwords in it. If Claude changes
+  a tool after you switched it on, the page says so and keeps the version you switched on
+  until you press **Use the new version**. A file Claude cannot get right says why, and
+  cannot be switched on.
+- Switching one on or off starts Claude in the Console again; the conversation is kept.
 
 ## Telegram (Settings › Telegram)
 
@@ -148,14 +166,21 @@ Under it:
   as `opus` (saved by version 0.3.4 or earlier) shows as *Opus (newest)*.
 - **Thinking**: *Default*, Low, Medium, High or Extra high (Claude Code's effort level).
   `max` lasts one session only in Claude Code, so it is not offered here.
-- **Permission mode**: *Default* asks before every action (start here). *Accept edits*
-  applies file edits by itself and still asks before commands. *Plan* only reads and
-  proposes. The app runs as root, where Claude Code blocks its fully-unattended modes, so
-  they are not offered.
+- **Permission level**, with its line underneath:
+  - *Training wheels*: read only. Claude looks and suggests, and changes nothing
+    (Claude Code's plan mode).
+  - *Co-pilot*: asks before each change and each command (start here).
+  - *Autopilot*: edits files by itself and still asks before commands (accept edits).
+  - *Jarvis mode*: full admin. Claude edits files and runs commands without asking. The
+    app runs as root, where Claude Code blocks its own unattended mode, so Jarvis mode adds
+    allow rules for Bash, file edits and web access instead, and turns on Snapshot before
+    edits, which stays on. Picking it asks once. Leaving it takes away only the rules it
+    added; any deny rules you have still win. MCP tools still ask the first time.
 
-**Save** writes the model, thinking level and permission mode into Claude Code's own
+**Save** writes the model, thinking level and permission level into Claude Code's own
 settings file (`/data/claude/settings.json`, the same file `/model`, `/effort` and
-`/permissions` in the Console write) and keeps every other setting in it. When any of the
+`/permissions` in the Console write) and keeps every other setting in it. A permission mode
+set elsewhere that no level stands for shows as Co-pilot and is kept. When any of the
 three changed, Claude in the Console starts again on them and carries on the
 conversation. A new name alone changes nothing in the Console. They can be set before
 you sign in; they apply from the first start after.

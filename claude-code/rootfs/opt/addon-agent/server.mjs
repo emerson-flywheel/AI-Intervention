@@ -22,7 +22,7 @@ import { SettingsError, saveSeatSettings, seatSettings } from './settings.mjs';
 import {
   TelegramError, forget, notify, pollOnce, savePrefs, saveToken, sendTest, setHa, startPairing, telegramView, watch,
 } from './telegram.mjs';
-import { ToolsError, saveTools, toolsState } from './tools.mjs';
+import { ToolsError, customTools, saveCustomTool, saveTools, toolsState } from './tools.mjs';
 import { refreshUsage, usageView } from './usage.mjs';
 
 // A routine's result to Telegram, when that switch is on.
@@ -60,6 +60,11 @@ const STARTERS = {
   health: 'Make a routine called "Morning health check", every day at 7:00: look at Home Assistant\'s repairs, the log\'s errors since yesterday, unavailable devices and batteries under 15%, and give me a short report.',
   spook: 'Make a routine called "Fix Spook\'s repair items", run when I press Run: go through the repair items Spook found (unknown entities in automations, scripts and dashboards), work out each fix, and list them for me to apply.',
   names: 'Make a routine called "Suggest better names", Sundays at 9:00: suggest clearer names for entities, devices and automations, matched to their area, and flag automations that never ran.',
+  update: 'Make a routine called "Update review", Fridays at 18:00: list the Home Assistant, add-on and HACS updates waiting, read each one\'s release notes for breaking changes that touch my setup, and tell me which are safe to install and which need care first.',
+  backup: 'Make a routine called "Backup check", every day at 8:00: check that a full backup finished in the last 24 hours, that its size is in line with the last few, and that it reached every backup location. Tell me only when something is wrong.',
+  logs: 'Make a routine called "Log noise review", Mondays at 9:00: find the warnings and errors that repeat most in the log, group them by integration, and suggest a fix or a quieter log level for each.',
+  integrations: 'Make a routine called "Integration health", every day at 7:30: list integrations that failed to load or need signing in again, config entries stuck retrying, and devices or entities unavailable for over a day.',
+  silent: 'Make a routine called "Silent stops", every day at 20:00: find sensors that stopped reporting when they usually report, automations that used to run but have not in a week, and batteries dropping faster than usual.',
 };
 
 // What Run / Apply in Console, or a starter, types into the Console.
@@ -151,6 +156,7 @@ async function state() {
     usage: usageView(),
     routines: listRoutines(),
     tools: toolsState(),
+    customTools: customTools(),
     telegram: telegramView(),
     // The Console client's process (run.sh writes it): the page reloads the Console once it changes.
     view: readRun('ttyd.pid'),
@@ -274,6 +280,15 @@ async function api(req, res, path) {
       });
       return send(res, 200, { saved: true, relaunched });
     }
+    // Settings › Tools, a tool Claude added: on or off, the same way.
+    if (path === '/api/tools/custom') {
+      const body = await readJson(req);
+      const relaunched = await withLoginLock(async () => {
+        const { changed } = saveCustomTool(body || {});
+        return changed ? relaunchConsole() : 'none';
+      });
+      return send(res, 200, { saved: true, relaunched });
+    }
     // Settings › Telegram: the set-up pop-up's steps, the switches, and forgetting the bot.
     if (path.startsWith('/api/telegram/')) {
       const body = await readJson(req);
@@ -303,7 +318,7 @@ async function api(req, res, path) {
     if (err instanceof RoutineError) {
       return send(res, { 'no-routine': 404, busy: 409, 'bad-routine': 409 }[err.code] || 400, { error: err.code });
     }
-    if (err instanceof ToolsError) return send(res, 400, { error: err.code });
+    if (err instanceof ToolsError) return send(res, err.code === 'no-tool' ? 404 : 400, { error: err.code });
     if (err instanceof RemoteError) return send(res, err.code === 'by-option' ? 409 : 400, { error: err.code });
     if (err instanceof SettingsError || err instanceof LookError) return send(res, 400, { error: err.code });
     return send(res, 500, { error: 'failed' });

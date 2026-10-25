@@ -9,7 +9,7 @@ const views = ['v-signed-in', 'v-signed-out', 'v-code', 'v-done'];
 let link = null;
 let busy = false;
 // Edits not saved yet: a refresh leaves the name, provider, model, thinking and permission
-// mode as typed, and the Console's theme and font size as picked.
+// level as typed, and the Console's theme and font size as picked.
 let dirty = false;
 let lookDirty = false;
 // The Console client's process from the last state: a new one means ttyd started again.
@@ -27,7 +27,11 @@ const MESSAGES = {
   'bad-provider': 'That provider is not one this app runs yet. Reload the page and pick Anthropic.',
   'bad-model': 'That model is not one this app offers. Reload the page and pick again.',
   'bad-thinking': 'That thinking level is not one this app offers. Reload the page and pick again.',
-  'bad-mode': 'That permission mode is not one this app offers. Reload the page and pick again.',
+  'bad-level': 'That permission level is not one this app offers. Reload the page and pick again.',
+  'jarvis-confirm': 'Jarvis mode needs a yes first. Press Save again and confirm.',
+  'jarvis-snapshot': 'Snapshot before edits stays on in Jarvis mode. Pick another permission level first.',
+  'no-tool': "That tool's file is gone. Ask Claude in the Console to add it again.",
+  'bad-tool': 'That is not a tool this page knows. Reload the page.',
   'bad-theme': 'That theme is not one this app offers. Reload the page and pick again.',
   'bad-font-size': 'That font size is not one this app offers. Reload the page and pick again.',
   'settings-unreadable':
@@ -154,12 +158,17 @@ function seatHead(s) {
     options($('provider'), providers, set.provider || '');
     options($('model'), set.models || [], set.model || '');
     options($('thinking'), set.thinkingLevels || [], set.thinking || '');
-    options($('mode'), set.permissionModes || [], set.permissionMode || '');
+  }
+  levelsNow = set.permissionLevels || [];
+  levelNow = set.permissionLevel || '';
+  if (!dirty) {
+    options($('level'), levelsNow, levelNow);
+    levelNote();
   }
   $('again').hidden = !s.signedIn || Boolean(s.byOption);
   $('start').hidden = s.signedIn;
   $('save-note').textContent = s.signedIn
-    ? 'Save restarts Claude in the Console on a new model, thinking level or permission mode; the conversation is kept.'
+    ? 'Save restarts Claude in the Console on a new model, thinking level or permission level; the conversation is kept.'
     : 'Saved now, used from the first start after you sign in.';
 }
 
@@ -491,6 +500,9 @@ function routines(list = []) {
   routinesNow = list;
   $('nav-routines-s').textContent = list.length ? String(list.length) : 'None';
   $('rt-empty').hidden = list.length > 0;
+  $('rt-starters-note').textContent = list.length
+    ? 'More ideas. Each opens in the Console, so you can adjust it before Claude saves it.'
+    : 'Or start from one of these. It opens in the Console, so you can adjust it before Claude saves it.';
   const keep = new Set(list.map((r) => r.id));
   for (const [id, card] of cards) {
     if (!keep.has(id)) {
@@ -508,8 +520,9 @@ function routines(list = []) {
 
 // Settings › Tools: a switch per tool, saved together.
 let toolsDirty = false;
-function tools(list = []) {
-  $('nav-tools-s').textContent = `${list.filter((t) => t.on).length} on`;
+function tools(list = [], added = []) {
+  $('nav-tools-s').textContent = `${list.filter((t) => t.on).length + added.filter((t) => t.on).length} on`;
+  customTools(added);
   if (toolsDirty) return;
   $('tool-list').replaceChildren(...list.map((t) => {
     const row = el('div', 'tool');
@@ -517,6 +530,8 @@ function tools(list = []) {
     box.type = 'checkbox';
     box.id = `tool-${t.id}`;
     box.checked = t.on;
+    // Jarvis mode keeps Snapshot before edits on.
+    box.disabled = Boolean(t.locked);
     box.addEventListener('input', () => {
       toolsDirty = true;
       $('tools-saved').hidden = true;
@@ -525,9 +540,76 @@ function tools(list = []) {
     const label = el('label', '', t.label);
     label.htmlFor = box.id;
     text.append(label, el('div', 'd', t.description));
+    if (t.locked) text.append(el('div', 'd', 'Kept on while the permission level is Jarvis mode.'));
     row.append(box, text);
     return row;
   }));
+}
+
+// Tools Claude added: one button each, on or off at once (Claude starts again to use it).
+const PROBLEMS = {
+  'not-json': "Its file is not valid JSON. Ask Claude in the Console to fix it.",
+  'bad-name': 'Its file needs a name of up to 60 characters. Ask Claude to fix it.',
+  'bad-description': 'Its description is too long. Ask Claude to fix it.',
+  'bad-kind': 'Its kind must be mcp or script. Ask Claude to fix it.',
+  'bad-config': 'Its settings are not ones this app can use. Ask Claude to fix it.',
+  'no-script': 'Its script is not in /data/tools. Ask Claude to fix it.',
+  gone: 'Its file is gone. Switch it off, or ask Claude to add it again.',
+};
+let customKey = '';
+function customTools(list) {
+  const key = JSON.stringify(list);
+  if (key === customKey) return;
+  customKey = key;
+  $('ct-empty').hidden = list.length > 0;
+  $('ct-list').replaceChildren(...list.map((t) => {
+    const row = el('div', 'ct');
+    row.dataset.tool = t.id;
+    const text = el('div');
+    text.append(el('div', 'n', `${t.name} · ${t.kind === 'script' ? 'Script' : 'MCP server'}${t.on ? ' · On' : ''}`));
+    if (t.description) text.append(el('div', 'd', t.description));
+    if (t.summary) text.append(el('div', 'run', t.summary));
+    if (t.problem) text.append(el('div', 'warn', PROBLEMS[t.problem] || PROBLEMS['bad-config']));
+    else if (t.changed) text.append(el('div', 'warn', 'Claude changed this tool after you switched it on. The version you switched on is still the one in use.'));
+    const button = el('button', t.on && !t.changed ? 'secondary' : 'primary');
+    if (t.problem === 'gone' || (t.on && !t.changed)) button.textContent = 'Switch off';
+    else button.textContent = t.changed ? 'Use the new version' : 'Switch on';
+    const want = !(t.problem === 'gone' || (t.on && !t.changed));
+    button.disabled = Boolean(t.problem) && want;
+    button.addEventListener('click', () => switchTool(t.id, want, button));
+    row.append(text, button);
+    return row;
+  }));
+}
+
+async function switchTool(id, on, button) {
+  $('ct-error').hidden = true;
+  $('ct-saved').hidden = true;
+  button.disabled = true;
+  const r = await post('api/tools/custom', { id, on });
+  button.disabled = false;
+  if (!r.saved) {
+    $('ct-error').textContent = MESSAGES[r.error] || PROBLEMS[r.error] || MESSAGES.failed;
+    $('ct-error').hidden = false;
+    return;
+  }
+  $('ct-saved').textContent = SAVED[r.relaunched] || SAVED.none;
+  $('ct-saved').hidden = false;
+  await refresh();
+}
+
+// The permission level's line under its list, and the Jarvis question before Save.
+let levelsNow = [];
+let levelNow = '';
+function levelNote() {
+  const pick = levelsNow.find((l) => l.id === $('level').value);
+  $('level-d').textContent = pick?.description || '';
+}
+function askJarvis() {
+  return confirmStep('Turn on Jarvis mode?', [
+    el('p', '', 'Claude will edit files and run commands, Home Assistant\'s included, without asking you first.'),
+    el('p', 'note', 'Snapshot before edits is switched on and stays on, so any file change can be undone. Commands themselves cannot be undone. You can pick another level at any time.'),
+  ], 'Turn on Jarvis mode');
 }
 
 async function saveTools() {
@@ -791,7 +873,7 @@ async function refresh() {
     look(s.console);
     remote(s.remote);
     routines(s.routines);
-    tools(s.tools);
+    tools(s.tools, s.customTools);
     telegram(s.telegram);
     usage(s.usage, s.signedIn);
     if (!$('v-code').hidden || !$('v-done').hidden) {
@@ -864,12 +946,20 @@ async function save() {
   error(null);
   $('saved').hidden = true;
   $('save').disabled = true;
+  const level = $('level').value;
+  const confirmJarvis = level === 'jarvis' && levelNow !== 'jarvis';
+  if (confirmJarvis && !(await askJarvis())) {
+    $('save').disabled = false;
+    busy = false;
+    return;
+  }
   const r = await post('api/seat/settings', {
     name: $('name').value,
     provider: $('provider').value,
     model: $('model').value,
     thinking: $('thinking').value,
-    permissionMode: $('mode').value,
+    permissionLevel: level,
+    ...(confirmJarvis && { confirmJarvis: true }),
   });
   $('save').disabled = false;
   busy = false;
@@ -965,7 +1055,8 @@ $('tab-settings').addEventListener('click', () => {
   selectTab('settings');
   refresh();
 });
-for (const id of ['name', 'provider', 'model', 'thinking', 'mode']) {
+$('level').addEventListener('input', levelNote);
+for (const id of ['name', 'provider', 'model', 'thinking', 'level']) {
   $(id).addEventListener('input', () => {
     dirty = true;
     $('saved').hidden = true;

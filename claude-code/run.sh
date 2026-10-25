@@ -19,8 +19,8 @@ log() { echo "[claude-code] $*"; }
 export CLAUDE_CONFIG_DIR="/data/claude"
 mkdir -p "${CLAUDE_CONFIG_DIR}"
 
-# --- The app's own skill (routines, undoing from the snapshot history), fresh each start ---
-mkdir -p "${CLAUDE_CONFIG_DIR}/skills/ai-intervention" /data/routines
+# --- The app's own skill (routines, tools, undoing from the snapshot history), fresh each start ---
+mkdir -p "${CLAUDE_CONFIG_DIR}/skills/ai-intervention" /data/routines /data/tools
 cp -f "${AGENT}/skills/ai-intervention/SKILL.md" "${CLAUDE_CONFIG_DIR}/skills/ai-intervention/SKILL.md" \
     || log "Skill: the app's routines skill could not be copied."
 
@@ -53,7 +53,16 @@ log "HA Core API: ${HA_API} | Supervisor: ${SUPERVISOR_API} (Bearer \$SUPERVISOR
 # BLOCKS the fully-unattended modes (bypassPermissions); the tab offers only
 # default/acceptEdits/plan.
 CLAUDE_ARGS=()
-log "Permission mode: from the Settings tab (${CLAUDE_CONFIG_DIR}/settings.json)."
+log "Permission level: from the Settings tab (${CLAUDE_CONFIG_DIR}/settings.json)."
+
+# The MCP servers switched on in Settings › Tools (tools Claude added). Claude does not start
+# when this file is missing, so it is made here when it is not there. The = form keeps
+# --mcp-config from taking the arguments after it as more files.
+if node "${AGENT}/tools.mjs" mcp-file; then
+    CLAUDE_ARGS+=("--mcp-config=${CLAUDE_CONFIG_DIR}/addon-mcp.json")
+else
+    log "Tools: the MCP file could not be written; Claude starts without Claude's tools."
+fi
 
 # Where Claude starts: the start_folder option when it names a folder (its CLAUDE.md, if
 # any, loads as project memory), with --add-dir /homeassistant so the live config stays

@@ -3,9 +3,10 @@
 // provider this app runs. The table below is where another would go: OpenAI and Grok are
 // listed (greyed out in the Provider list) but not run, since each needs its own program and
 // sign-in in the image first.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CLAUDE_DIR, DATA } from './lib.mjs';
+import { jarvisFile, withSnapshot } from './tools.mjs';
 
 export class SettingsError extends Error {
   constructor(code) {
@@ -71,25 +72,48 @@ const claude = {
     { id: 'high', label: 'High' },
     { id: 'xhigh', label: 'Extra high' },
   ],
-  // permissions.defaultMode. The app runs as root, so Claude Code refuses its unattended
-  // modes; a mode set elsewhere that is not offered here shows as Default and is kept.
-  modes: [
-    { id: '', label: 'Default (asks first)' },
-    { id: 'acceptEdits', label: 'Accept edits' },
-    { id: 'plan', label: 'Plan (read only)' },
+  // Permission levels, each saved as the permissions.defaultMode it stands for. The app runs
+  // as root, so Claude Code refuses its unattended mode (bypassPermissions); Jarvis mode gets
+  // there with allow rules for every tool instead, and its marker file (jarvis.json) lists
+  // the rules it added, so leaving takes back only those. A mode set elsewhere that no level
+  // stands for shows as Co-pilot and is kept.
+  levels: [
+    { id: 'wheels', label: 'Training wheels', mode: 'plan', description: 'Read only. Claude looks around and suggests, and changes nothing.' },
+    { id: 'copilot', label: 'Co-pilot', mode: '', description: 'Claude asks before each change and each command.' },
+    { id: 'autopilot', label: 'Autopilot', mode: 'acceptEdits', description: 'Claude edits files without asking, and still asks before running commands.' },
+    { id: 'jarvis', label: 'Jarvis mode', mode: 'acceptEdits', description: 'Full admin. Claude edits files and runs commands without asking. Snapshot before edits stays on, so any change can be undone.' },
   ],
-  readMode(s) {
+  jarvisAllow: ['Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch'],
+  readLevel(s) {
+    if (existsSync(jarvisFile())) return 'jarvis';
     const m = isObject(s.permissions) ? s.permissions.defaultMode : undefined;
-    return this.modes.some((x) => x.id && x.id === m) ? m : '';
+    return this.levels.find((l) => l.id !== 'jarvis' && l.mode && l.mode === m)?.id ?? 'copilot';
   },
-  writeMode(s, mode) {
+  // The settings for a new level, and what to do with Jarvis's marker: { added } to write
+  // it, null to remove it, undefined to leave it.
+  writeLevel(s, level, before) {
     const out = { ...s };
     const perms = isObject(out.permissions) ? { ...out.permissions } : {};
+    let allow = Array.isArray(perms.allow) ? [...perms.allow] : [];
+    let marker;
+    if (before === 'jarvis' && level !== 'jarvis') {
+      const added = readJson(jarvisFile()).value?.added;
+      if (Array.isArray(added)) allow = allow.filter((r) => !added.includes(r));
+      marker = null;
+    }
+    if (level === 'jarvis' && before !== 'jarvis') {
+      const added = this.jarvisAllow.filter((r) => !allow.includes(r));
+      allow.push(...added);
+      marker = { added };
+    }
+    if (allow.length) perms.allow = allow;
+    else delete perms.allow;
+    const mode = this.levels.find((l) => l.id === level).mode;
     if (mode) perms.defaultMode = mode;
     else delete perms.defaultMode;
     if (Object.keys(perms).length) out.permissions = perms;
     else delete out.permissions;
-    return out;
+    return { settings: marker ? withSnapshot(out) : out, marker };
   },
 };
 
@@ -166,18 +190,19 @@ export function seatSettings() {
     thinking: now.thinking,
     models,
     thinkingLevels: p.settings.thinking.map((t) => ({ ...t })),
-    permissionMode: p.settings.readMode(unreadable ? {} : file.value),
-    permissionModes: p.settings.modes.map((m) => ({ ...m })),
+    permissionLevel: p.settings.readLevel(unreadable ? {} : file.value),
+    permissionLevels: p.settings.levels.map(({ id, label, description }) => ({ id, label, description })),
     unreadable,
   };
 }
 
-// Save the name, provider, model, thinking level and permission mode. changed: the model,
-// thinking level or permission mode is new, so Claude in the Console must start again to use
+// Save the name, provider, model, thinking level and permission level. changed: the model,
+// thinking level or permission level is new, so Claude in the Console must start again to use
 // it. A settings file that is not JSON is left alone (it may hold the user's other settings)
 // and nothing is written. A provider this app does not run is refused; a save without one
-// keeps the seat's, and a save without a permission mode keeps the current one.
-export function saveSeatSettings({ name, provider: asked, model, thinking, permissionMode } = {}) {
+// keeps the seat's, and a save without a permission level keeps the current one. Moving to
+// Jarvis mode needs confirmJarvis (the page asks once).
+export function saveSeatSettings({ name, provider: asked, model, thinking, permissionLevel, confirmJarvis } = {}) {
   const cleanName = checkName(name);
   if (cleanName === null) throw new SettingsError('bad-name');
   if (asked !== undefined && !(Object.hasOwn(PROVIDERS, asked) && PROVIDERS[asked].runs)) {
@@ -192,16 +217,20 @@ export function saveSeatSettings({ name, provider: asked, model, thinking, permi
   if (typeof thinking !== 'string' || !p.settings.thinking.some((t) => t.id === thinking)) {
     throw new SettingsError('bad-thinking');
   }
-  const nowMode = p.settings.readMode(file.unreadable || !isObject(file.value) ? {} : file.value);
-  const mode = permissionMode ?? nowMode;
-  if (typeof mode !== 'string' || !p.settings.modes.some((m) => m.id === mode)) throw new SettingsError('bad-mode');
-  const changed = model !== now.model || thinking !== now.thinking || mode !== nowMode;
+  const nowLevel = p.settings.readLevel(file.unreadable || !isObject(file.value) ? {} : file.value);
+  const level = permissionLevel ?? nowLevel;
+  if (typeof level !== 'string' || !p.settings.levels.some((l) => l.id === level)) throw new SettingsError('bad-level');
+  if (level === 'jarvis' && nowLevel !== 'jarvis' && confirmJarvis !== true) throw new SettingsError('jarvis-confirm');
+  const changed = model !== now.model || thinking !== now.thinking || level !== nowLevel;
   if (changed) {
     if (file.unreadable || !isObject(file.value)) throw new SettingsError('settings-unreadable');
     mkdirSync(CLAUDE_DIR, { recursive: true });
     let next = p.settings.write(file.value, { model, thinking });
-    if (mode !== nowMode) next = p.settings.writeMode(next, mode);
+    let marker;
+    if (level !== nowLevel) ({ settings: next, marker } = p.settings.writeLevel(next, level, nowLevel));
     writeJson(p.settings.file(), next);
+    if (marker) writeJson(jarvisFile(), marker);
+    else if (marker === null) rmSync(jarvisFile(), { force: true });
   }
   mkdirSync(DATA, { recursive: true });
   writeJson(profileFile(), { name: cleanName, provider });
