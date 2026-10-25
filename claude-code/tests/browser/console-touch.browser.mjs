@@ -135,9 +135,13 @@ describe('The Console on a phone', { skip }, () => {
     const attach = join(sb.root, 'attach.sh');
     writeFileSync(attach, `#!/usr/bin/env bash\nexec "${HERDR_REAL}" session attach claude\n`);
     chmodSync(attach, 0o755);
+    // run.sh's own --client-option flags (the look's are defaults here, so none).
+    const runSh = readFileSync(join(HERE, '..', 'run.sh'), 'utf8');
+    const clientOpts = [...runSh.matchAll(/--client-option (\w+)=("[^"]*"|\S+)/g)]
+      .flatMap(([, k, v]) => ['--client-option', `${k}=${v.replace(/^"|"$/g, '')}`]);
     const ttydPort = await freePort();
     ttyd = spawn(TTYD_REAL, ['--interface', '127.0.0.1', '--port', String(ttydPort), '--base-path', '/console',
-      '--writable', attach], { env, stdio: 'ignore' });
+      '--writable', ...clientOpts, attach], { env, stdio: 'ignore' });
     const addonPort = await freePort();
     addon = spawn(process.execPath, [join(AGENT_DIR, 'server.mjs')], {
       env: { ...env, ADDON_PORT: String(addonPort), ADDON_TTYD_PORT: String(ttydPort), ADDON_INGRESS_PEER: '127.0.0.1' },
@@ -178,6 +182,32 @@ describe('The Console on a phone', { skip }, () => {
   test('herdr reports the mouse, so the terminal itself ignores touch', async () => {
     const mode = await con.evaluate(() => window.term.modes.mouseTrackingMode);
     assert.notEqual(mode, 'none');
+  });
+
+  test('the text gets the whole width: no scrollbar column, no empty strip on the right', async () => {
+    // herdr's pane scrollbar is drawn with this glyph down the right edge.
+    assert.ok(!(await screen()).includes('▕'), 'no scrollbar column');
+    let fit = null;
+    await until('the terminal is fitted to the frame', async () => {
+      fit = await con.evaluate(() => {
+        const cell = window.term._core._renderService.dimensions.css.cell.width;
+        const pad = getComputedStyle(window.term.element);
+        const room = window.term.element.parentElement.clientWidth
+          - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
+        return { cols: window.term.cols, cell, room, fill: Math.floor(room / cell) };
+      });
+      return fit.cols === fit.fill;
+    }).catch(() => assert.fail(`${fit.cols} columns in room for ${fit.fill} (${JSON.stringify(fit)})`));
+    // ttyd's size box (e.g. "54x52") is off, so a fit flashes nothing over the text. ttyd
+    // fits on a resize (as when a phone's keyboard opens) and shows the box for 300 ms.
+    await page.setViewportSize({ width: 360, height: 844 });
+    await sleep(150);
+    const sizeBox = await con.evaluate(() => [...window.term.element.children]
+      .some((c) => /^\d+x\d+$/.test(c.textContent) && c.style.opacity !== '0'));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await sleep(500);
+    assert.equal(sizeBox, false, 'no size box on a resize');
+    if (SHOTS) await page.screenshot({ path: join(SHOTS, 'console-touch-390-width.png') });
   });
 
   test('a swipe down scrolls back into the history, a swipe up comes back', async () => {
