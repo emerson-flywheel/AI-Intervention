@@ -16,8 +16,49 @@ You need Home Assistant OS or Supervised (anything with Apps), on a 64-bit Intel
 ## The Settings tab
 
 A menu on the left (a row of buttons on a phone) opens one section at a time: **Seat**,
-**Console look** and **Remote console**, each with its state beside it. A section's
-buttons sit at its bottom right, the main one (Save, Turn on) furthest right.
+**Console look**, **Routines**, **Tools** and **Remote console**, each with its state
+beside it. A section's buttons sit at its bottom right, the main one (Save, Turn on, Run
+now) furthest right.
+
+## Routines (Settings › Routines)
+
+A routine is a job Claude does by name, by hand or on a schedule: for example a morning
+health check, fixing the repair items Spook found, or suggestions for clearer names.
+
+- **Making one**: describe the job to Claude in the Console and say "make this a routine"
+  (with a schedule if you like: "every day at 7", "weekdays at 6 PM", "Sundays at 9").
+  Claude saves it as one small file in `/data/routines/` (name, one-line explanation,
+  schedule, instructions) and it shows up here. To change or remove one, ask Claude. With
+  no routines yet, the section offers three to start from; each opens in the Console so
+  you can adjust it first.
+- **Listed** with its explanation, its schedule, and its last result (a summary; **Full
+  report** shows the whole report). Change the schedule here (When I press Run, Every day,
+  Weekdays, or one day of the week, at a time), or **Turn off** a routine to keep it off
+  the timer.
+- **Run now** and the schedule run it out of sight and **only look and report** (Claude's
+  plan mode): nothing changes. If it found things to fix, the result says how many, and
+  **Apply in Console** asks Claude in the Console to make those fixes, asking before each
+  change as usual. **Run in Console** runs the whole routine in the Console where you can
+  watch every step.
+- Times are Home Assistant's local time. A run that was due while the app was stopped is
+  skipped if it is over an hour late; the next one runs. One routine runs at a time. A
+  run uses your plan like any other Claude request.
+
+## Tools (Settings › Tools)
+
+Extras Claude may use. **Save** starts Claude in the Console again with them; the
+conversation is kept.
+
+- **Snapshot before edits** (off at first): before each file Claude changes, the app
+  saves your config folder in a local history (`/data/ha-history`; the database, logs and
+  backups are left out). Ask Claude to "undo your last change" and it shows you the
+  difference and puts the file back once you say yes.
+- **Web search** (on, as before): Claude Code's web search and page fetch, for looking up
+  integration docs and error messages. It still asks before opening a page. Off adds
+  deny rules for both to Claude Code's settings.
+
+Both are kept in Claude Code's own settings file (`/data/claude/settings.json`); every
+other setting in it stays as it is.
 
 ## Sign in (the Settings tab)
 

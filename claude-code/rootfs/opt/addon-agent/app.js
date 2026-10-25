@@ -327,6 +327,226 @@ async function toggleHostKey() {
   }
 }
 
+// Settings › Routines: one card per routine, kept by id and updated in place, so a refresh
+// never takes away a schedule being changed or a report being read.
+const KINDS = [
+  ['manual', 'When I press Run'], ['daily', 'Every day'], ['weekdays', 'Weekdays'],
+  ['sun', 'Sundays'], ['mon', 'Mondays'], ['tue', 'Tuesdays'], ['wed', 'Wednesdays'],
+  ['thu', 'Thursdays'], ['fri', 'Fridays'], ['sat', 'Saturdays'],
+];
+const CONSOLE_WHY = {
+  'no-console': 'The Console is not running yet. Try again in a moment.',
+  'off-duty': 'The Console is Off-Duty. Press Enter in the Console first, then try again.',
+  'not-claude': 'Claude is not running in the Console (it may be in its shell). Leave the shell, then try again.',
+  dialog: 'Claude is asking something in the Console. Answer it there first.',
+  busy: 'Another routine is running. Wait for it to finish.',
+  'bad-routine': "This routine's file needs fixing first: ask Claude in the Console.",
+};
+const cards = new Map();
+let routinesNow = [];
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function rtMessage(kind, text) {
+  for (const k of ['saved', 'error']) {
+    $(`rt-${k}`).hidden = k !== kind || !text;
+    $(`rt-${k}`).textContent = k === kind ? text || '' : '';
+  }
+}
+
+function splitSchedule(s) {
+  if (!s || s === 'manual') return ['manual', '07:00'];
+  const [kind, time] = s.split(' ');
+  return [kind, time || '07:00'];
+}
+
+async function toConsole(body) {
+  rtMessage(null);
+  const r = await post('api/routines/console', body);
+  if (r.typed) return selectTab('console');
+  rtMessage('error', CONSOLE_WHY[r.error] || MESSAGES[r.error] || MESSAGES.failed);
+}
+
+async function saveSchedule(id, card) {
+  const kind = card.querySelector('.rt-kind').value;
+  card.querySelector('.rt-time').hidden = kind === 'manual';
+  const schedule = kind === 'manual' ? 'manual' : `${kind} ${card.querySelector('.rt-time').value || '07:00'}`;
+  card.dataset.busy = '1';
+  const r = await post('api/routines/schedule', { id, schedule });
+  delete card.dataset.busy;
+  if (!r.saved) return rtMessage('error', MESSAGES[r.error] || 'That schedule is not one this app understands.');
+  await refresh();
+  const now = routinesNow.find((x) => x.id === id);
+  rtMessage('saved', `Saved: ${now?.scheduleLabel || ''}`);
+}
+
+function makeCard(id) {
+  const card = el('div', 'rt');
+  card.dataset.id = id;
+  const head = el('div', 'rt-head');
+  head.append(el('span', 'n'), el('span', 'when'), el('span', 'last'));
+  const what = el('p', 'what');
+  const problem = el('p', 'banner');
+  const lastLine = el('p', 'note rt-lastline');
+  const reportBtn = el('button', 'text rt-report', 'Full report');
+  const pre = el('pre');
+  pre.hidden = true;
+  const row = el('div', 'row');
+  const kind = el('select', 'rt-kind');
+  kind.setAttribute('aria-label', 'When it runs');
+  for (const [v, label] of KINDS) {
+    const o = el('option', '', label);
+    o.value = v;
+    kind.append(o);
+  }
+  const time = el('input', 'rt-time');
+  time.type = 'time';
+  time.setAttribute('aria-label', 'At');
+  const toggle = el('button', 'secondary rt-toggle');
+  const inConsole = el('button', 'secondary rt-console', 'Run in Console');
+  const apply = el('button', 'secondary rt-apply', 'Apply in Console');
+  const runNow = el('button', 'primary rt-run', 'Run now');
+  row.append(kind, time, toggle, inConsole, apply, runNow);
+  card.append(head, what, problem, lastLine, pre, row);
+
+  kind.addEventListener('change', () => saveSchedule(id, card));
+  time.addEventListener('change', () => saveSchedule(id, card));
+  toggle.addEventListener('click', async () => {
+    const r = await post('api/routines/enabled', { id, enabled: card.dataset.enabled !== 'true' });
+    if (!r.saved) return rtMessage('error', MESSAGES.failed);
+    await refresh();
+  });
+  inConsole.addEventListener('click', () => toConsole({ id, kind: 'run' }));
+  apply.addEventListener('click', () => toConsole({ id, kind: 'apply' }));
+  runNow.addEventListener('click', async () => {
+    rtMessage(null);
+    runNow.disabled = true;
+    const r = await post('api/routines/run', { id });
+    if (!r.started) rtMessage('error', CONSOLE_WHY[r.error] || MESSAGES.failed);
+    await refresh();
+  });
+  reportBtn.addEventListener('click', async () => {
+    if (!pre.hidden) {
+      pre.hidden = true;
+      reportBtn.textContent = 'Full report';
+      return;
+    }
+    try {
+      const r = await (await fetch(`api/routines/result?id=${encodeURIComponent(id)}`, { cache: 'no-store' })).json();
+      pre.textContent = r.result?.report || r.result?.summary || 'No report kept for this run.';
+      pre.hidden = false;
+      reportBtn.textContent = 'Hide report';
+    } catch {
+      rtMessage('error', MESSAGES.failed);
+    }
+  });
+  card.reportBtn = reportBtn;
+  return card;
+}
+
+function fillCard(card, r) {
+  const at = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  card.querySelector('.n').textContent = r.name;
+  card.querySelector('.when').textContent = r.enabled ? r.scheduleLabel : `${r.scheduleLabel} (off)`;
+  const last = card.querySelector('.last');
+  let lastText = 'Not run yet';
+  let lastCls = '';
+  if (r.running) lastText = 'Running…';
+  else if (r.last && !r.last.ok) [lastText, lastCls] = [`✖ ${r.last.summary}`, 'bad'];
+  else if (r.last?.fixes > 0) {
+    [lastText, lastCls] = [`● ${r.last.summary} · ${r.last.fixes} ${r.last.fixes === 1 ? 'fix' : 'fixes'} waiting`, 'fix'];
+  } else if (r.last) [lastText, lastCls] = [`✓ ${r.last.summary}`, 'ok'];
+  last.textContent = lastText;
+  last.className = `last${lastCls ? ` ${lastCls}` : ''}`;
+  card.querySelector('.what').textContent = r.description;
+  const problem = card.querySelector('.banner');
+  problem.textContent = r.problem || '';
+  problem.hidden = !r.problem;
+  const lastLine = card.querySelector('.rt-lastline');
+  lastLine.hidden = !r.last;
+  if (r.last) {
+    lastLine.replaceChildren(`Last run ${new Date(r.last.at).toLocaleString(undefined, at)} · `, card.reportBtn);
+  }
+  card.dataset.enabled = String(r.enabled);
+  card.querySelector('.rt-toggle').textContent = r.enabled ? 'Turn off' : 'Turn on';
+  card.querySelector('.rt-apply').hidden = !(r.last?.fixes > 0) || Boolean(r.problem);
+  card.querySelector('.rt-run').disabled = r.running || Boolean(r.problem);
+  card.querySelector('.rt-console').disabled = Boolean(r.problem);
+  const kind = card.querySelector('.rt-kind');
+  const time = card.querySelector('.rt-time');
+  if (!card.dataset.busy && document.activeElement !== kind && document.activeElement !== time) {
+    const [k, t] = splitSchedule(r.schedule);
+    kind.value = k;
+    time.value = t;
+    time.hidden = k === 'manual';
+  }
+}
+
+function routines(list = []) {
+  routinesNow = list;
+  $('nav-routines-s').textContent = list.length ? String(list.length) : 'None';
+  $('rt-empty').hidden = list.length > 0;
+  const keep = new Set(list.map((r) => r.id));
+  for (const [id, card] of cards) {
+    if (!keep.has(id)) {
+      card.remove();
+      cards.delete(id);
+    }
+  }
+  for (const r of list) {
+    if (!cards.has(r.id)) cards.set(r.id, makeCard(r.id));
+    const card = cards.get(r.id);
+    fillCard(card, r);
+    $('rt-list').append(card);
+  }
+}
+
+// Settings › Tools: a switch per tool, saved together.
+let toolsDirty = false;
+function tools(list = []) {
+  $('nav-tools-s').textContent = `${list.filter((t) => t.on).length} on`;
+  if (toolsDirty) return;
+  $('tool-list').replaceChildren(...list.map((t) => {
+    const row = el('div', 'tool');
+    const box = el('input');
+    box.type = 'checkbox';
+    box.id = `tool-${t.id}`;
+    box.checked = t.on;
+    box.addEventListener('input', () => {
+      toolsDirty = true;
+      $('tools-saved').hidden = true;
+    });
+    const text = el('div');
+    const label = el('label', '', t.label);
+    label.htmlFor = box.id;
+    text.append(label, el('div', 'd', t.description));
+    row.append(box, text);
+    return row;
+  }));
+}
+
+async function saveTools() {
+  $('tools-error').hidden = true;
+  $('tools-saved').hidden = true;
+  $('save-tools').disabled = true;
+  const r = await post('api/tools', { snapshot: $('tool-snapshot').checked, web: $('tool-web').checked });
+  $('save-tools').disabled = false;
+  if (!r.saved) {
+    $('tools-error').textContent = MESSAGES[r.error] || MESSAGES.failed;
+    $('tools-error').hidden = false;
+    return;
+  }
+  toolsDirty = false;
+  $('tools-saved').textContent = SAVED[r.relaunched] || SAVED.none;
+  $('tools-saved').hidden = false;
+  await refresh();
+}
+
 // The Settings menu: one section at a time.
 function selectSection(name) {
   for (const b of document.querySelectorAll('.nav button')) {
@@ -439,6 +659,8 @@ async function refresh() {
     view = s.view;
     look(s.console);
     remote(s.remote);
+    routines(s.routines);
+    tools(s.tools);
     usage(s.usage, s.signedIn);
     if (!$('v-code').hidden || !$('v-done').hidden) {
       chip(s.signedIn);
@@ -680,6 +902,10 @@ $('r-remove').addEventListener('click', removeAccess);
 $('r-forget').addEventListener('click', removeAccess);
 $('r-reset').addEventListener('click', resetHostKey);
 $('r-show').addEventListener('click', toggleHostKey);
+for (const b of document.querySelectorAll('[data-starter]')) {
+  b.addEventListener('click', () => toConsole({ kind: 'starter', starter: b.dataset.starter }));
+}
+$('save-tools').addEventListener('click', saveTools);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refresh();
 });

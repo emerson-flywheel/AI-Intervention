@@ -205,3 +205,24 @@ export async function paneLines(pane, n) {
   while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
   return lines.slice(-n);
 }
+
+// Type one line into Claude in the Console, as the remote agent's `type` does: only while
+// Claude has the console (not in its shell, not Off-Duty) and no dialog is on its screen.
+// Returns "typed", or why not: "no-console", "off-duty", "not-claude" or "dialog".
+const DIALOG = ['Esc to cancel', 'Enter to select', 'Do you want to proceed?'];
+export async function typeIntoConsole(line) {
+  const pane = await consolePane();
+  if (!pane) return 'no-console';
+  addGuard();
+  try {
+    if (readRun('state') === 'off') return 'off-duty';
+    if (guardedShell() || !['busy', 'working', 'blocked', 'idle', 'done'].includes(await consoleState(pane))) return 'not-claude';
+    const recent = (await paneLines(pane, 60)).filter((l) => l.trim() !== '').slice(-20).join('\n');
+    if (DIALOG.some((d) => recent.includes(d))) return 'dialog';
+    if (!(await herdr('pane', 'send-text', pane, line)).ok) return 'no-console';
+    await herdr('pane', 'send-keys', pane, 'enter');
+    return 'typed';
+  } finally {
+    dropGuard();
+  }
+}

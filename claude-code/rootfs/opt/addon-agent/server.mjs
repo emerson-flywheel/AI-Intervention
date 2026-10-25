@@ -10,11 +10,37 @@ import { fileURLToPath } from 'node:url';
 import {
   APPLY, RESET, RemoteError, hostKeyFingerprint, remoteOff, remoteRemove, remoteStatus, saveRemote,
 } from './keyline.mjs';
-import { readRun, relaunchConsole, seatName, writeRun } from './lib.mjs';
+import { readRun, relaunchConsole, seatName, typeIntoConsole, writeRun } from './lib.mjs';
 import { LookError, lookSettings, saveLook, writeConfigs } from './look.mjs';
+import {
+  RoutineError, listRoutines, readReport, readRoutine, runRoutine, setEnabled, setSchedule, tick,
+} from './routines.mjs';
 import { LoginError, cancelLogin, loginWaiting, seatLogin, startLogin, submitCode, withLoginLock } from './seat.mjs';
 import { SettingsError, saveSeatSettings, seatSettings } from './settings.mjs';
+import { ToolsError, saveTools, toolsState } from './tools.mjs';
 import { refreshUsage, usageView } from './usage.mjs';
+
+// The routines the empty Routines section offers: each is typed into the Console as a
+// request to Claude to make it, so it can be adjusted there first.
+const STARTERS = {
+  health: 'Make a routine called "Morning health check", every day at 7:00: look at Home Assistant\'s repairs, the log\'s errors since yesterday, unavailable devices and batteries under 15%, and give me a short report.',
+  spook: 'Make a routine called "Fix Spook\'s repair items", run when I press Run: go through the repair items Spook found (unknown entities in automations, scripts and dashboards), work out each fix, and list them for me to apply.',
+  names: 'Make a routine called "Suggest better names", Sundays at 9:00: suggest clearer names for entities, devices and automations, matched to their area, and flag automations that never ran.',
+};
+
+// What Run / Apply in Console, or a starter, types into the Console.
+function consoleLine({ id, kind, starter }) {
+  if (kind === 'starter') {
+    if (!Object.hasOwn(STARTERS, starter)) throw new RoutineError('bad-starter');
+    return STARTERS[starter];
+  }
+  const r = readRoutine(id);
+  if (kind === 'run') return `Run my routine "${r.name}" from /data/routines/${r.id}.md now, step by step, and ask before each change.`;
+  if (kind === 'apply') {
+    return `Apply the fixes from the last run of my routine "${r.name}" (its report is in /data/routines/.results/${r.id}.json). Ask before each change.`;
+  }
+  throw new RoutineError('bad-kind');
+}
 
 const env = process.env;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -89,6 +115,8 @@ async function state() {
     console: lookSettings(),
     remote: remoteStatus(),
     usage: usageView(),
+    routines: listRoutines(),
+    tools: toolsState(),
     // The Console client's process (run.sh writes it): the page reloads the Console once it changes.
     view: readRun('ttyd.pid'),
   };
@@ -98,6 +126,14 @@ async function api(req, res, path) {
   if (req.method === 'GET' && path === '/api/state') return send(res, 200, await state());
   // The host key's fingerprint, only when the page's Show is pressed.
   if (req.method === 'GET' && path === '/api/remote/hostkey') return send(res, 200, { hostKey: hostKeyFingerprint() });
+  // A routine's last result with its full report (the state lists only the summary).
+  if (req.method === 'GET' && path === '/api/routines/result') {
+    try {
+      return send(res, 200, { result: readReport(new URL(req.url, 'http://x').searchParams.get('id')) });
+    } catch {
+      return send(res, 404, { error: 'no-routine' });
+    }
+  }
   if (req.method !== 'POST') return send(res, 405, { error: 'method' });
   // A JSON body and our own header: a form or a plain cross-site request cannot send both.
   if (!String(req.headers['content-type']).startsWith('application/json') || req.headers['x-seat'] !== '1') {
@@ -166,8 +202,49 @@ async function api(req, res, path) {
         return send(res, 200, { saved: true });
       }
     }
+    // Settings › Routines. Run now starts a report-only run out of sight and answers at once;
+    // the state shows it running, then its result. Run / Apply in Console type the routine
+    // into Claude in the Console, where each step asks first.
+    if (path === '/api/routines/run') {
+      const body = await readJson(req);
+      const r = readRoutine(body?.id);
+      if (r.problem) throw new RoutineError('bad-routine');
+      if (listRoutines().some((x) => x.running)) throw new RoutineError('busy');
+      runRoutine(r.id).catch(() => {});
+      return send(res, 200, { started: true });
+    }
+    if (path === '/api/routines/schedule') {
+      const body = await readJson(req);
+      setSchedule(body?.id, body?.schedule);
+      return send(res, 200, { saved: true });
+    }
+    if (path === '/api/routines/enabled') {
+      const body = await readJson(req);
+      setEnabled(body?.id, body?.enabled === true);
+      return send(res, 200, { saved: true });
+    }
+    if (path === '/api/routines/console') {
+      const body = await readJson(req);
+      const line = consoleLine(body || {});
+      const typed = await typeIntoConsole(line);
+      return typed === 'typed' ? send(res, 200, { typed: true }) : send(res, 409, { error: typed });
+    }
+    // Settings › Tools: saved into Claude Code's settings; a change starts Claude in the
+    // Console again (with --continue) so it uses them.
+    if (path === '/api/tools') {
+      const body = await readJson(req);
+      const relaunched = await withLoginLock(async () => {
+        const { changed } = saveTools(body || {});
+        return changed ? relaunchConsole() : 'none';
+      });
+      return send(res, 200, { saved: true, relaunched });
+    }
   } catch (err) {
     if (err instanceof LoginError) return send(res, STATUS[err.code] || 409, { error: err.code });
+    if (err instanceof RoutineError) {
+      return send(res, { 'no-routine': 404, busy: 409, 'bad-routine': 409 }[err.code] || 400, { error: err.code });
+    }
+    if (err instanceof ToolsError) return send(res, 400, { error: err.code });
     if (err instanceof RemoteError) return send(res, err.code === 'by-option' ? 409 : 400, { error: err.code });
     if (err instanceof SettingsError || err instanceof LookError) return send(res, 400, { error: err.code });
     return send(res, 500, { error: 'failed' });
@@ -215,4 +292,13 @@ export function createServer() {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   createServer().listen(PORT, '0.0.0.0', () => console.log(`[claude-code] Page on :${PORT} (ingress only).`));
+  // Routines on a schedule: every 30 s, whatever is due runs (one run at a time).
+  let ticking = false;
+  setInterval(() => {
+    if (ticking) return;
+    ticking = true;
+    tick().finally(() => {
+      ticking = false;
+    });
+  }, Number(env.ADDON_ROUTINE_TICK_MS) || 30e3).unref();
 }

@@ -19,6 +19,11 @@ log() { echo "[claude-code] $*"; }
 export CLAUDE_CONFIG_DIR="/data/claude"
 mkdir -p "${CLAUDE_CONFIG_DIR}"
 
+# --- The app's own skill (routines, undoing from the snapshot history), fresh each start ---
+mkdir -p "${CLAUDE_CONFIG_DIR}/skills/ai-intervention" /data/routines
+cp -f "${AGENT}/skills/ai-intervention/SKILL.md" "${CLAUDE_CONFIG_DIR}/skills/ai-intervention/SKILL.md" \
+    || log "Skill: the app's routines skill could not be copied."
+
 # --- Read add-on options (no bashio) ---
 OAUTH_TOKEN=""
 START_FOLDER=""

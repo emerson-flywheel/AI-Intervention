@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.1 — 2026-10-25
+
+- **Routines** (Settings › Routines): named jobs Claude does by hand or on a schedule. Ask
+  Claude in the Console to "make this a routine" and it shows up with its explanation,
+  schedule and last result. **Run now** and the schedule only look and report; **Apply in
+  Console** makes the fixes a run found, asking first. Three starters when there are none:
+  a morning health check, fixing Spook's repair items, and better names.
+- **Tools** (Settings › Tools): **Snapshot before edits** saves your config in a local
+  history before each change Claude makes, so "undo your last change" works; **Web
+  search** can be switched off.
+- The app ships a skill that shows Claude how to write a routine and how to undo from the
+  snapshot history.
+
 ## 0.4.0 — 2026-10-25
 
 - **Settings has a menu.** Seat, Console look and Remote console each open on their own,

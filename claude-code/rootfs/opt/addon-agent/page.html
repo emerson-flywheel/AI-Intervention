@@ -128,7 +128,30 @@
   dialog::backdrop { background: rgba(0, 0, 0, .45); }
   dialog h1 { font-size: 17px; font-weight: 500; margin: 0 0 8px; }
   dialog ul { padding-left: 18px; margin: 8px 0 0; }
+  /* Settings › Routines and Tools */
+  .rt { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .rt + .rt { margin-top: 10px; }
+  .rt-head { display: flex; gap: 4px 12px; align-items: baseline; flex-wrap: wrap; }
+  .rt-head .n { font-weight: 500; font-size: 15px; overflow-wrap: anywhere; }
+  .rt-head .when { color: var(--muted); font-size: 13px; }
+  .rt-head .last { margin-left: auto; font-size: 13px; }
+  .rt .last.ok { color: var(--ok); }
+  .rt .last.fix { color: var(--warn); }
+  .rt .last.bad { color: var(--err); }
+  .rt .what { margin: 6px 0 0; font-size: 13px; }
+  .rt pre {
+    margin: 8px 0 0; padding: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.45 ui-monospace, "Roboto Mono", Menlo, Consolas, monospace;
+    max-height: 320px; overflow-y: auto;
+  }
+  .rt .row select, .rt .row input[type="time"] { width: auto; max-width: none; padding: 5px 8px; }
+  .tool { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; }
+  .tool + .tool { border-top: 1px solid var(--line); }
+  .tool input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--primary); }
+  .tool label { color: var(--text); margin: 0; }
+  .tool .d { color: var(--muted); font-size: 13px; }
   @media (max-width: 600px) {
+    .rt-head .last { margin-left: 0; width: 100%; }
     .split { grid-template-columns: 1fr; gap: 12px; }
     .nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
     .nav button { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
@@ -163,6 +186,8 @@
       <nav class="nav" role="tablist" aria-label="Settings">
         <button role="tab" id="nav-seat" data-sec="seat" aria-controls="sec-seat" aria-selected="true">Seat <span class="s" id="nav-seat-s"></span></button>
         <button role="tab" id="nav-look" data-sec="look" aria-controls="sec-look" aria-selected="false">Console look <span class="s" id="nav-look-s"></span></button>
+        <button role="tab" id="nav-routines" data-sec="routines" aria-controls="sec-routines" aria-selected="false">Routines <span class="s" id="nav-routines-s"></span></button>
+        <button role="tab" id="nav-tools" data-sec="tools" aria-controls="sec-tools" aria-selected="false">Tools <span class="s" id="nav-tools-s"></span></button>
         <button role="tab" id="nav-remote" data-sec="remote" aria-controls="sec-remote" aria-selected="false">Remote console <span class="s" id="nav-remote-s"></span></button>
       </nav>
       <div class="secs">
@@ -255,6 +280,33 @@
       <div class="row"><button class="primary" id="save-look">Save</button></div>
       <p class="saved" id="look-saved" role="status" hidden></p>
       <p class="error" id="look-error" role="alert" hidden></p>
+    </div>
+
+    <div class="card sec" id="sec-routines" role="tabpanel" aria-labelledby="nav-routines" hidden>
+      <h1>Routines</h1>
+      <p class="hint">Jobs Claude does by name, on a schedule or when you press Run. To make or change one, ask Claude in the Console, for example "make a routine called Pool check, weekdays at 6 PM".</p>
+      <div id="rt-list"></div>
+      <div id="rt-empty" hidden>
+        <p>No routines yet. Describe a job to Claude in the Console and say "make this a routine"; it shows up here.</p>
+        <p class="note">Or start from one of these. It opens in the Console, so you can adjust it before Claude saves it.</p>
+        <div class="row">
+          <button class="secondary" data-starter="health">Morning health check</button>
+          <button class="secondary" data-starter="spook">Fix Spook's repair items</button>
+          <button class="secondary" data-starter="names">Suggest better names</button>
+        </div>
+      </div>
+      <p class="note">Run now and the schedule only look and report; nothing changes until you press Apply in Console and say yes there.</p>
+      <p class="saved" id="rt-saved" role="status" hidden></p>
+      <p class="error" id="rt-error" role="alert" hidden></p>
+    </div>
+
+    <div class="card sec" id="sec-tools" role="tabpanel" aria-labelledby="nav-tools" hidden>
+      <h1>Tools</h1>
+      <p class="hint">Extras Claude may use. Saving starts Claude in the Console again with them; the conversation is kept.</p>
+      <div id="tool-list"></div>
+      <div class="row"><button class="primary" id="save-tools">Save</button></div>
+      <p class="saved" id="tools-saved" role="status" hidden></p>
+      <p class="error" id="tools-error" role="alert" hidden></p>
     </div>
 
     <div class="card sec" id="sec-remote" role="tabpanel" aria-labelledby="nav-remote" hidden>
