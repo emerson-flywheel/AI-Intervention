@@ -443,6 +443,12 @@ describe('Seat sign-in in a browser', { skip }, () => {
       const { context, page, frame } = await open();
       contexts.push(context);
       await frame.click('#tab-settings');
+      // 0.4.0: Settings has a menu; one section shows at a time, the Seat first.
+      assert.deepEqual(await frame.$$eval('.nav button', (bs) => bs.map((b) => b.dataset.sec)), ['seat', 'look', 'remote']);
+      assert.equal(await frame.isVisible('#sec-seat'), true);
+      assert.equal(await frame.isVisible('#sec-look'), false);
+      await frame.click('#nav-look');
+      assert.equal(await frame.isVisible('#sec-seat'), false);
       await frame.waitForSelector('#theme option', { state: 'attached' });
       const themes = await frame.$$eval('#theme option', (os) => os.map((o) => [o.value, o.textContent]));
       assert.equal(themes.length, 18);
@@ -451,8 +457,6 @@ describe('Seat sign-in in a browser', { skip }, () => {
       assert.equal(await frame.inputValue('#theme'), '');
       assert.deepEqual(await frame.$$eval('#font-size option', (os) => os.map((o) => o.textContent)),
         ['Default (13 px)', '12 px', '14 px', '16 px', '18 px', '20 px']);
-      assert.equal(await frame.textContent('#remote-state'), 'Off. Set the remote_key option on the Configuration tab to turn it on.');
-      assert.equal(await frame.isVisible('#remote-host'), false, 'no host key shown while off');
 
       await frame.selectOption('#theme', 'nord');
       await frame.selectOption('#font-size', '16');
@@ -469,31 +473,85 @@ describe('Seat sign-in in a browser', { skip }, () => {
       assert.equal(await frame.$eval('#frame', (f) => getComputedStyle(f).backgroundColor), 'rgb(46, 52, 64)', 'Nord fills the frame');
       await shot(page, frame, 'settings-console-1280-light');
 
-      // The remote console on: where from, and the host key's fingerprint.
-      writeFileSync(options, JSON.stringify({ remote_key: 'set', remote_allow_from: '192.0.2.10' }));
-      mkdirSync(keyDir, { recursive: true });
+      // The remote console: off and closed by default, Enable opens the form.
+      await frame.click('#nav-remote');
+      await frame.waitForSelector('#sec-remote:visible');
+      assert.equal(await frame.textContent('#remote-chip'), 'Off');
+      assert.equal(await frame.textContent('#nav-remote-s'), 'Off');
+      assert.equal(await frame.isVisible('#r-form'), false);
+      assert.equal(await frame.isVisible('#remote-host'), false, 'no host key while off');
+      await frame.click('#r-enable');
+      await frame.waitForSelector('#r-form:visible');
       // A fresh ed25519 public key in ssh's format: its type and its 32 bytes, each length-prefixed.
-      const raw = generateKeyPairSync('ed25519').publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
       const field = (b) => Buffer.concat([Buffer.from([0, 0, 0, b.length]), b]);
-      writeFileSync(join(keyDir, 'ssh_host_ed25519_key.pub'),
-        `ssh-ed25519 ${Buffer.concat([field(Buffer.from('ssh-ed25519')), field(raw)]).toString('base64')} test\n`);
+      const sshKey = () => {
+        const raw = generateKeyPairSync('ed25519').publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
+        return Buffer.concat([field(Buffer.from('ssh-ed25519')), field(raw)]).toString('base64');
+      };
+      await frame.fill('#r-key', 'not a key');
+      await frame.fill('#r-from', '192.0.2.10');
+      await frame.click('#r-turn-on');
+      await frame.waitForSelector('text=That is not one ssh-ed25519 public key line');
+      const key = `ssh-ed25519 ${sshKey()} desk`;
+      await frame.fill('#r-key', key);
+      await frame.click('#r-turn-on');
+      await frame.waitForSelector('#r-pending:visible');
+      assert.deepEqual(JSON.parse(readFileSync(join(sb.data, 'remote.json'), 'utf8')), { key, from: '192.0.2.10', enabled: true });
+      assert.equal(readFileSync(join(sb.run, 'remote-apply'), 'utf8').trim(), '1', 'run.sh is asked to apply it');
+      // run.sh's part: the key line, sshd, and a host key.
+      mkdirSync(keyDir, { recursive: true });
+      writeFileSync(join(keyDir, 'ssh_host_ed25519_key.pub'), `ssh-ed25519 ${sshKey()} test\n`);
       writeFileSync(join(sb.run, 'remote'), 'on\n');
-      await frame.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-      await frame.waitForSelector('#remote-host:visible');
-      assert.equal(await frame.textContent('#remote-state'), 'On');
-      assert.equal(await frame.textContent('#remote-from'), '192.0.2.10');
-      assert.match(await frame.textContent('#remote-host'), /^SHA256:[A-Za-z0-9+/]{43}$/);
+      rmSync(join(sb.run, 'remote-apply'));
+      await frame.waitForSelector('#r-on:visible', { timeout: 8000 });
+      assert.equal(await frame.textContent('#remote-chip'), 'On');
+      assert.equal(await frame.textContent('#r-from-v'), '192.0.2.10');
+      assert.equal(await frame.textContent('#r-key-v'), 'ssh-ed25519 … desk');
+      assert.equal(await frame.textContent('#remote-host'), 'SHA256:••••••••••••••', 'hidden until Show');
+      await frame.click('#r-show');
+      await frame.waitForSelector('#remote-host:text-matches("^SHA256:[A-Za-z0-9+/]{43}$")');
+      await frame.click('#r-show');
+      assert.equal(await frame.textContent('#remote-host'), 'SHA256:••••••••••••••', 'Hide hides it again');
+      // Actions sit bottom right, the main one furthest right.
+      const boxes = await frame.$$eval('#r-on .row button', (bs) => bs.map((b) => [b.id, b.getBoundingClientRect().right]));
+      const row = await frame.$eval('#r-on .row', (r) => r.getBoundingClientRect().right);
+      assert.equal(boxes.at(-1)[0], 'r-off');
+      assert.ok(Math.abs(boxes.at(-1)[1] - row) < 2, 'the last button meets the right edge');
+
+      await frame.click('#r-reset');
+      await frame.waitForSelector('#confirm[open]');
+      assert.match(await frame.textContent('#confirm'), /refuse/);
+      await frame.click('#confirm-ok');
+      await frame.waitForSelector('#r-pending:visible');
+      assert.equal(readFileSync(join(sb.run, 'hostkey-reset'), 'utf8').trim(), '1', 'run.sh makes the new host key');
+      rmSync(join(sb.run, 'hostkey-reset'));
+
       const wide = await open({ width: 360, scheme: 'dark' });
       contexts.push(wide.context);
       await wide.frame.click('#tab-settings');
-      await wide.frame.waitForSelector('#remote-host:visible');
-      await wide.frame.evaluate(() => document.querySelector('#remote-host').scrollIntoView());
+      await wide.frame.click('#nav-remote');
+      await wide.frame.waitForSelector('#r-on:visible');
       await shot(wide.page, wide.frame, 'settings-remote-360-dark');
+
+      await frame.click('#r-off');
+      await frame.waitForSelector('#r-pending:visible');
+      assert.equal(JSON.parse(readFileSync(join(sb.data, 'remote.json'), 'utf8')).enabled, false, 'off keeps the key');
+      writeFileSync(join(sb.run, 'remote'), 'off\n');
+      rmSync(join(sb.run, 'remote-apply'));
+      await frame.waitForSelector('#r-off-kept:visible', { timeout: 8000 });
+
+      // Set by the options: the page says so and offers no changes, only the host key.
+      writeFileSync(options, JSON.stringify({ remote_key: key, remote_allow_from: '192.0.2.10' }));
+      writeFileSync(join(sb.run, 'remote'), 'on\n');
+      await frame.waitForSelector('#remote-option:visible', { timeout: 8000 });
+      for (const id of ['#r-off', '#r-remove', '#r-change']) assert.equal(await frame.isVisible(id), false, id);
+      assert.equal(await frame.isVisible('#r-show'), true);
     } finally {
       for (const c of contexts) await c.close().catch(() => {});
-      for (const f of ['ttyd.pid', 'ttyd-restart', 'remote']) rmSync(join(sb.run, f), { force: true });
+      for (const f of ['ttyd.pid', 'ttyd-restart', 'remote', 'remote-apply', 'hostkey-reset']) rmSync(join(sb.run, f), { force: true });
       rmSync(join(sb.run, 'herdr'), { recursive: true, force: true });
       rmSync(join(sb.data, 'look.json'), { force: true });
+      rmSync(join(sb.data, 'remote.json'), { force: true });
       rmSync(keyDir, { recursive: true, force: true });
       writeFileSync(options, '{}');
     }

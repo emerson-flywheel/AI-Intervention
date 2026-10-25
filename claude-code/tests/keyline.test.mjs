@@ -6,7 +6,9 @@ import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { allowFrom, keyLine, remoteStatus } from '../rootfs/opt/addon-agent/keyline.mjs';
+import {
+  allowFrom, hostKeyFingerprint, keyLine, remoteConfig, remoteOff, remoteRemove, remoteStatus, saveRemote,
+} from '../rootfs/opt/addon-agent/keyline.mjs';
 import { runNode, sandbox } from './helpers.mjs';
 
 function ed25519Line(comment = 'remote@box') {
@@ -125,30 +127,108 @@ test('keyline.mjs leaves the remote console\'s state in /run for the Settings ta
   }
 });
 
-test('remoteStatus: the state, and when on, where from and the host key\'s fingerprint only', () => {
+test('remoteStatus: the state, where from and the key\'s comment; never a key or the host key', () => {
   const sb = sandbox({ options: { remote_key: ed25519Line().line, remote_allow_from: ' 192.0.2.10, 192.0.2.0/24 ' } });
   const status = () => remoteStatus(sb.data, sb.run);
-  assert.deepEqual(status(), { state: 'unknown', from: null, hostKey: null }, 'nothing written yet: the app is starting');
+  const set = { source: 'option', from: '192.0.2.10,192.0.2.0/24', keyComment: 'remote@box', lastLogin: null, pending: false };
+  assert.deepEqual(status(), { state: 'unknown', ...set }, 'nothing written yet: the app is starting');
   writeFileSync(join(sb.run, 'remote'), 'sideways\n');
-  assert.deepEqual(status(), { state: 'unknown', from: null, hostKey: null });
+  assert.deepEqual(status(), { state: 'unknown', ...set });
 
   writeFileSync(join(sb.run, 'remote'), 'on\n');
-  assert.deepEqual(status(), { state: 'on', from: '192.0.2.10,192.0.2.0/24', hostKey: null }, 'no host key file yet');
   const keyDir = join(sb.data, 'ssh');
   mkdirSync(keyDir, { recursive: true });
   execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'test host', '-f', join(keyDir, 'ssh_host_ed25519_key')]);
   const want = execFileSync('ssh-keygen', ['-lf', join(keyDir, 'ssh_host_ed25519_key.pub')]).toString().split(' ')[1];
   assert.match(want, /^SHA256:[A-Za-z0-9+/]{43}$/);
-  const on = status();
-  assert.equal(on.hostKey, want, 'the same fingerprint ssh shows');
+  assert.deepEqual(status(), { state: 'on', ...set });
+  assert.equal(hostKeyFingerprint(sb.data), want, 'the same fingerprint ssh shows');
   const pub = readFileSync(join(keyDir, 'ssh_host_ed25519_key.pub'), 'utf8').split(' ')[1];
-  assert.ok(!JSON.stringify(on).includes(pub.slice(20, 40)), 'never the key itself');
+  assert.ok(!JSON.stringify(status()).includes(pub.slice(20, 40)), 'never the key itself');
 
   writeFileSync(join(keyDir, 'ssh_host_ed25519_key.pub'), 'not a key\n');
-  assert.equal(status().hostKey, null, 'an odd key file shows no fingerprint');
-  for (const state of ['off', 'refused-key', 'refused-from']) {
-    writeFileSync(join(sb.run, 'remote'), `${state}\n`);
-    assert.deepEqual(status(), { state, from: null, hostKey: null }, state);
+  assert.equal(hostKeyFingerprint(sb.data), null, 'an odd key file shows no fingerprint');
+  writeFileSync(join(sb.data, 'options.json'), JSON.stringify({ remote_key: 'not a key', remote_allow_from: '*' }));
+  writeFileSync(join(sb.run, 'remote'), 'refused-key\n');
+  assert.deepEqual(status(), { ...set, state: 'refused-key', from: null, keyComment: null }, 'refused: nothing of it shown');
+  sb.cleanup();
+});
+
+// 0.4.0: the remote console set from Settings › Remote console (kept in /data/remote.json);
+// the options still win when remote_key is set.
+test('remoteConfig: the options win when remote_key is set, else the page\'s remote.json', () => {
+  const { line } = ed25519Line('desk');
+  const sb = sandbox({ options: {} });
+  assert.deepEqual(remoteConfig(sb.data), { source: 'none', key: null, from: null, enabled: false });
+  writeFileSync(join(sb.data, 'remote.json'), JSON.stringify({ key: line, from: FROM, enabled: true }));
+  assert.deepEqual(remoteConfig(sb.data), { source: 'page', key: line, from: FROM, enabled: true });
+  writeFileSync(join(sb.data, 'remote.json'), JSON.stringify({ key: line, from: FROM, enabled: false }));
+  assert.equal(remoteConfig(sb.data).enabled, false);
+  writeFileSync(join(sb.data, 'remote.json'), 'not json');
+  assert.equal(remoteConfig(sb.data).source, 'none', 'an unreadable file is no setting');
+  writeFileSync(join(sb.data, 'options.json'), JSON.stringify({ remote_key: line, remote_allow_from: '192.0.2.99' }));
+  assert.deepEqual(remoteConfig(sb.data), { source: 'option', key: line, from: '192.0.2.99', enabled: true });
+  sb.cleanup();
+});
+
+test('saveRemote / remoteOff / remoteRemove: checked like the option, 0600, off keeps the key, remove drops it', () => {
+  const { line } = ed25519Line('desk');
+  const sb = sandbox({ options: {} });
+  const file = join(sb.data, 'remote.json');
+  assert.throws(() => saveRemote({ key: `command="sh" ${line}`, from: FROM }, sb.data), { code: 'bad-key' });
+  assert.throws(() => saveRemote({ key: line, from: '0.0.0.0/0' }, sb.data), { code: 'bad-from' });
+  assert.throws(() => saveRemote({ from: FROM }, sb.data), { code: 'bad-key' }, 'no key and none kept');
+  assert.equal(existsSync(file), false);
+
+  saveRemote({ key: ` ${line}\n`, from: ' 192.0.2.10, 192.0.2.0/24 ' }, sb.data);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { key: line, from: '192.0.2.10,192.0.2.0/24', enabled: true });
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+
+  remoteOff(sb.data);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { key: line, from: '192.0.2.10,192.0.2.0/24', enabled: false });
+  saveRemote({ from: FROM }, sb.data);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { key: line, from: FROM, enabled: true }, 'on again with the kept key, new address');
+
+  remoteRemove(sb.data);
+  assert.equal(existsSync(file), false);
+
+  writeFileSync(join(sb.data, 'options.json'), JSON.stringify({ remote_key: line, remote_allow_from: FROM }));
+  for (const f of [() => saveRemote({ key: line, from: FROM }, sb.data), () => remoteOff(sb.data), () => remoteRemove(sb.data)]) {
+    assert.throws(f, { code: 'by-option' }, 'the options decide while remote_key is set');
   }
+  sb.cleanup();
+});
+
+test('keyline.mjs takes the key from remote.json when the options leave it empty', async () => {
+  const { blob, line } = ed25519Line('desk');
+  const sb = sandbox({ options: { remote_key: '' } });
+  const keys = join(sb.data, 'ssh', 'authorized_keys');
+  writeFileSync(join(sb.data, 'remote.json'), JSON.stringify({ key: line, from: FROM, enabled: true }));
+  assert.equal((await runNode(sb, 'keyline.mjs')).code, 0);
+  assert.equal(readFileSync(keys, 'utf8'), `${PREFIX}${blob}\n`);
+  assert.equal(readFileSync(join(sb.run, 'remote'), 'utf8'), 'on\n');
+
+  writeFileSync(join(sb.data, 'remote.json'), JSON.stringify({ key: line, from: FROM, enabled: false }));
+  assert.equal((await runNode(sb, 'keyline.mjs')).code, 1, 'turned off on the page');
+  assert.equal(existsSync(keys), false, 'and the line is gone, so a running sshd takes no login');
+  assert.equal(readFileSync(join(sb.run, 'remote'), 'utf8'), 'off\n');
+  sb.cleanup();
+});
+
+test('remoteStatus from the page: the kept key while off, the last login, and a change still waiting for run.sh', () => {
+  const { line } = ed25519Line('desk');
+  const sb = sandbox({ options: {} });
+  writeFileSync(join(sb.data, 'remote.json'), JSON.stringify({ key: line, from: FROM, enabled: true }));
+  writeFileSync(join(sb.run, 'remote'), 'on\n');
+  mkdirSync(join(sb.data, 'ssh'), { recursive: true });
+  writeFileSync(join(sb.data, 'ssh', 'last-login'), '1761400000000\n');
+  assert.deepEqual(remoteStatus(sb.data, sb.run),
+    { state: 'on', source: 'page', from: FROM, keyComment: 'desk', lastLogin: 1761400000000, pending: false });
+
+  writeFileSync(join(sb.data, 'remote.json'), JSON.stringify({ key: line, from: FROM, enabled: false }));
+  writeFileSync(join(sb.run, 'remote-apply'), '1\n');
+  assert.deepEqual(remoteStatus(sb.data, sb.run),
+    { state: 'on', source: 'page', from: FROM, keyComment: 'desk', lastLogin: 1761400000000, pending: true },
+    'turned off, run.sh not there yet: still on, pending');
   sb.cleanup();
 });

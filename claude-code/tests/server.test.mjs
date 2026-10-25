@@ -2,7 +2,7 @@
 // a real tmux), the signed-in rule, and the console/ proxy (HTTP and websocket) to ttyd.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { join } from 'node:path';
@@ -352,5 +352,54 @@ describe('page server', () => {
       spawnSync('tmux', ['-L', 'usage', 'kill-server'], { env: sb.env });
       rmSync(join(sb.data, 'claude', '.claude.json'), { force: true });
     }
+  });
+
+  test('api/remote/*: on, off, remove and a new host key from the page, each left for run.sh; the host key only on request', async () => {
+    const apply = join(sb.run, 'remote-apply');
+    const reset = join(sb.run, 'hostkey-reset');
+    const page = join(sb.data, 'remote.json');
+    // 192.0.2.0/24 is the documentation range: no real host. A made-up ed25519 public key line.
+    const key = `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI${'A'.repeat(42)}B desk`;
+    for (const p of ['/api/remote/enable', '/api/remote/off', '/api/remote/remove', '/api/remote/reset-hostkey']) {
+      const plain = await req(srv.port, p, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } });
+      assert.equal(plain.status, 403, `${p} needs the page header`);
+    }
+    const badKey = await post(srv.port, '/api/remote/enable', { key: `command="sh" ${key}`, from: '192.0.2.10' });
+    assert.deepEqual([badKey.status, JSON.parse(badKey.body)], [400, { error: 'bad-key' }]);
+    const badFrom = await post(srv.port, '/api/remote/enable', { key, from: '*' });
+    assert.deepEqual([badFrom.status, JSON.parse(badFrom.body)], [400, { error: 'bad-from' }]);
+    assert.equal(existsSync(page) || existsSync(apply), false, 'nothing written for a refusal');
+
+    const on = await post(srv.port, '/api/remote/enable', { key, from: '192.0.2.10' });
+    assert.deepEqual([on.status, JSON.parse(on.body)], [200, { saved: true }]);
+    assert.equal(JSON.parse(readFileSync(page, 'utf8')).enabled, true);
+    assert.ok(existsSync(apply), 'run.sh applies it');
+    let r = JSON.parse((await req(srv.port, '/api/state')).body).remote;
+    assert.deepEqual([r.source, r.pending], ['page', true]);
+    assert.ok(!('hostKey' in r), 'no host key in the state');
+
+    rmSync(apply);
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/remote/off')).body), { saved: true });
+    assert.deepEqual([JSON.parse(readFileSync(page, 'utf8')).enabled, existsSync(apply)], [false, true]);
+    rmSync(apply);
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/remote/reset-hostkey')).body), { saved: true });
+    assert.ok(existsSync(reset), 'run.sh makes the new host key');
+    rmSync(reset);
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/remote/remove')).body), { saved: true });
+    assert.deepEqual([existsSync(page), existsSync(apply)], [false, true]);
+    rmSync(apply);
+
+    assert.deepEqual(JSON.parse((await req(srv.port, '/api/remote/hostkey')).body), { hostKey: null }, 'no host key made here');
+    mkdirSync(join(sb.data, 'ssh'), { recursive: true });
+    spawnSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'test host', '-f', join(sb.data, 'ssh', 'ssh_host_ed25519_key')]);
+    assert.match(JSON.parse((await req(srv.port, '/api/remote/hostkey')).body).hostKey, /^SHA256:[A-Za-z0-9+/]{43}$/);
+
+    writeFileSync(join(sb.data, 'options.json'), JSON.stringify({ remote_key: key, remote_allow_from: '192.0.2.10' }));
+    const byOption = await post(srv.port, '/api/remote/off');
+    assert.deepEqual([byOption.status, JSON.parse(byOption.body)], [409, { error: 'by-option' }]);
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/remote/reset-hostkey')).body), { saved: true }, 'a new host key is fine either way');
+    rmSync(reset, { force: true });
+    writeFileSync(join(sb.data, 'options.json'), '{}');
+    rmSync(join(sb.data, 'ssh'), { recursive: true, force: true });
   });
 });

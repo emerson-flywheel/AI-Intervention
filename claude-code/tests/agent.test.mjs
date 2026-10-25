@@ -3,7 +3,7 @@
 // with the fake claude in a real tmux.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { AGENT_DIR, FAKES, GOOD_CODE, GOOD_LINK, agent, consoleHerdr, sandbox, writeRunFiles } from './helpers.mjs';
@@ -74,6 +74,18 @@ describe('command shape', () => {
     down.setHerdr({ ...down.herdr(), down: true });
     await refused(down, 'history claude', 'no such console started here', 3);
   });
+});
+
+test('every login stamps when (for Settings › Remote console), at most once a minute', async () => {
+  const sb = withConsole();
+  const file = join(sb.data, 'ssh', 'last-login');
+  mkdirSync(join(sb.data, 'ssh'), { recursive: true });
+  const before = Date.now();
+  assert.equal((await agent(sb, 'snapshot')).code, 0);
+  const first = Number(readFileSync(file, 'utf8'));
+  assert.ok(first >= before && first <= Date.now(), 'a login time in ms');
+  await refused(sb, 'nope', 'unknown verb', 2);
+  assert.equal(Number(readFileSync(file, 'utf8')), first, 'within the minute: not written again');
 });
 
 describe('snapshot and history', () => {
