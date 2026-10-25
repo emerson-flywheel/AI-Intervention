@@ -264,11 +264,14 @@ export function readReport(id) {
   return readResult(id);
 }
 
-// Run each routine that is due and turned on, one after another.
-export async function tick(now = Date.now()) {
+// Run each routine that is due and turned on, one after another; onResult(routine, result)
+// after each (the server sends it to Telegram).
+export async function tick(now = Date.now(), onResult = () => {}) {
   for (const r of listRoutines()) {
     if (!r.enabled || r.problem || r.running) continue;
-    if (due(parseSchedule(r.schedule), r.last?.at ?? null, now)) await runRoutine(r.id).catch(() => {});
+    if (due(parseSchedule(r.schedule), r.last?.at ?? null, now)) {
+      await runRoutine(r.id).then((result) => onResult(r, result)).catch(() => {});
+    }
   }
 }
 

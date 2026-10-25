@@ -10,15 +10,49 @@ import { fileURLToPath } from 'node:url';
 import {
   APPLY, RESET, RemoteError, hostKeyFingerprint, remoteOff, remoteRemove, remoteStatus, saveRemote,
 } from './keyline.mjs';
-import { readRun, relaunchConsole, seatName, typeIntoConsole, writeRun } from './lib.mjs';
+import {
+  consolePane, consoleState, herdr, paneLines, readRun, relaunchConsole, seatName, sleep, typeIntoConsole, writeRun,
+} from './lib.mjs';
 import { LookError, lookSettings, saveLook, writeConfigs } from './look.mjs';
 import {
   RoutineError, listRoutines, readReport, readRoutine, runRoutine, setEnabled, setSchedule, tick,
 } from './routines.mjs';
 import { LoginError, cancelLogin, loginWaiting, seatLogin, startLogin, submitCode, withLoginLock } from './seat.mjs';
 import { SettingsError, saveSeatSettings, seatSettings } from './settings.mjs';
+import {
+  TelegramError, forget, notify, pollOnce, savePrefs, saveToken, sendTest, setHa, startPairing, telegramView, watch,
+} from './telegram.mjs';
 import { ToolsError, saveTools, toolsState } from './tools.mjs';
 import { refreshUsage, usageView } from './usage.mjs';
+
+// A routine's result to Telegram, when that switch is on.
+function tellRoutine(r, result) {
+  const fixes = result.fixes ? `\n${result.fixes} fix${result.fixes === 1 ? '' : 'es'} waiting: Apply in Console on Settings › Routines.` : '';
+  return notify('routines', `${r.name}: ${result.summary}${fixes}`);
+}
+
+// What the Telegram bot reads and does in the Console.
+const telegramCtx = {
+  consoleState: async () => {
+    const pane = await consolePane();
+    return pane ? consoleState(pane) : 'none';
+  },
+  screen: async () => {
+    const pane = await consolePane();
+    return pane ? paneLines(pane, 30) : [];
+  },
+  typeIntoConsole,
+  pressKey: async (key) => {
+    const pane = await consolePane();
+    if (pane) await herdr('pane', 'send-keys', pane, key);
+  },
+  listRoutines,
+  runRoutine: (id) => runRoutine(id).then((result) => {
+    tellRoutine(readRoutine(id), result);
+    return result;
+  }),
+  seat: seatLogin,
+};
 
 // The routines the empty Routines section offers: each is typed into the Console as a
 // request to Claude to make it, so it can be adjusted there first.
@@ -117,6 +151,7 @@ async function state() {
     usage: usageView(),
     routines: listRoutines(),
     tools: toolsState(),
+    telegram: telegramView(),
     // The Console client's process (run.sh writes it): the page reloads the Console once it changes.
     view: readRun('ttyd.pid'),
   };
@@ -210,7 +245,7 @@ async function api(req, res, path) {
       const r = readRoutine(body?.id);
       if (r.problem) throw new RoutineError('bad-routine');
       if (listRoutines().some((x) => x.running)) throw new RoutineError('busy');
-      runRoutine(r.id).catch(() => {});
+      runRoutine(r.id).then((result) => tellRoutine(r, result)).catch(() => {});
       return send(res, 200, { started: true });
     }
     if (path === '/api/routines/schedule') {
@@ -239,8 +274,32 @@ async function api(req, res, path) {
       });
       return send(res, 200, { saved: true, relaunched });
     }
+    // Settings › Telegram: the set-up pop-up's steps, the switches, and forgetting the bot.
+    if (path.startsWith('/api/telegram/')) {
+      const body = await readJson(req);
+      if (path === '/api/telegram/token') return send(res, 200, { bot: await saveToken(body?.token) });
+      if (path === '/api/telegram/pair') return send(res, 200, startPairing());
+      if (path === '/api/telegram/test') {
+        await sendTest();
+        return send(res, 200, { sent: true });
+      }
+      if (path === '/api/telegram/prefs') {
+        savePrefs(body || {});
+        return send(res, 200, { saved: true });
+      }
+      if (path === '/api/telegram/ha') return send(res, 200, await setHa(body?.on === true));
+      if (path === '/api/telegram/forget') {
+        await forget();
+        return send(res, 200, { saved: true });
+      }
+    }
   } catch (err) {
     if (err instanceof LoginError) return send(res, STATUS[err.code] || 409, { error: err.code });
+    if (err instanceof TelegramError) {
+      return send(res, { 'bad-token': 400, 'bad-prefs': 400, 'token-refused': 400, 'no-network': 502, 'no-ha': 502 }[err.code] || 409, {
+        error: err.code,
+      });
+    }
     if (err instanceof RoutineError) {
       return send(res, { 'no-routine': 404, busy: 409, 'bad-routine': 409 }[err.code] || 400, { error: err.code });
     }
@@ -297,8 +356,21 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   setInterval(() => {
     if (ticking) return;
     ticking = true;
-    tick().finally(() => {
+    tick(Date.now(), tellRoutine).finally(() => {
       ticking = false;
     });
   }, Number(env.ADDON_ROUTINE_TICK_MS) || 30e3).unref();
+  // Telegram: one long poll after another while a bot is set (at most one a second), and a
+  // look every 10 s for Claude waiting for an OK or a login that ran out.
+  (async () => {
+    for (;;) {
+      const started = Date.now();
+      let polled = false;
+      try {
+        polled = await pollOnce(telegramCtx);
+      } catch {}
+      await sleep(polled ? Math.max(0, 1000 - (Date.now() - started)) : 5000);
+    }
+  })();
+  setInterval(() => watch(telegramCtx).catch(() => {}), 10e3).unref();
 }

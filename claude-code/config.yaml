@@ -5,7 +5,7 @@
 # Signs in with your Claude Pro or Max plan, NOT an API key. The slug stays claude_code
 # (the app's id since 0.1), so an installed copy updates in place.
 name: "AI Intervention"
-version: "0.4.1"
+version: "0.4.2"
 slug: "claude_code"
 description: "Claude Code in your sidebar: a console that stays open, and sign-in from the browser. Uses your Claude Pro or Max plan, no API key."
 url: "https://github.com/emerson-flywheel/AI-Intervention"

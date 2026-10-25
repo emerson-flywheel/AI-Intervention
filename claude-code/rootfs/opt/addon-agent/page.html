@@ -150,6 +150,22 @@
   .tool input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--primary); }
   .tool label { color: var(--text); margin: 0; }
   .tool .d { color: var(--muted); font-size: 13px; }
+  /* Settings › Telegram and its set-up pop-up */
+  .sub { font-weight: 500; margin: 14px 0 2px; }
+  .row.left { justify-content: flex-start; }
+  a.button {
+    display: inline-block; font-weight: 500; border-radius: 8px; padding: 9px 16px; text-decoration: none;
+  }
+  a.button.primary { background: var(--primary); color: var(--on-primary); }
+  dialog.wizard { width: min(520px, calc(100vw - 32px)); }
+  .steps { display: flex; gap: 4px; margin: 4px 0 12px; }
+  .steps span { flex: 1; height: 4px; border-radius: 999px; background: var(--line); }
+  .steps span.done { background: var(--ok); }
+  .steps span.now { background: var(--primary); }
+  .stepname { font-size: 12px; color: var(--muted); margin: 0 0 2px; }
+  .step-title { font-size: 15px; font-weight: 500; margin: 0 0 8px; }
+  .wizard ol { margin: 6px 0 8px; }
+  .wizard li { margin: 4px 0; }
   @media (max-width: 600px) {
     .rt-head .last { margin-left: 0; width: 100%; }
     .split { grid-template-columns: 1fr; gap: 12px; }
@@ -188,6 +204,7 @@
         <button role="tab" id="nav-look" data-sec="look" aria-controls="sec-look" aria-selected="false">Console look <span class="s" id="nav-look-s"></span></button>
         <button role="tab" id="nav-routines" data-sec="routines" aria-controls="sec-routines" aria-selected="false">Routines <span class="s" id="nav-routines-s"></span></button>
         <button role="tab" id="nav-tools" data-sec="tools" aria-controls="sec-tools" aria-selected="false">Tools <span class="s" id="nav-tools-s"></span></button>
+        <button role="tab" id="nav-telegram" data-sec="telegram" aria-controls="sec-telegram" aria-selected="false">Telegram <span class="s" id="nav-telegram-s"></span></button>
         <button role="tab" id="nav-remote" data-sec="remote" aria-controls="sec-remote" aria-selected="false">Remote console <span class="s" id="nav-remote-s"></span></button>
       </nav>
       <div class="secs">
@@ -309,6 +326,39 @@
       <p class="error" id="tools-error" role="alert" hidden></p>
     </div>
 
+    <div class="card sec" id="sec-telegram" role="tabpanel" aria-labelledby="nav-telegram" hidden>
+      <div class="sec-head"><h1>Telegram</h1><span class="chip off" id="tg-chip">Off</span></div>
+      <div id="tg-off">
+        <p class="hint">Your own Telegram bot that messages you (routine results, a login that ran out, Claude waiting for your OK) and that your Home Assistant automations can use too.</p>
+        <p class="note">About 3 minutes. You'll need Telegram on your phone or computer.</p>
+        <div class="row"><button class="primary" id="tg-setup">Set up…</button></div>
+      </div>
+      <div id="tg-on" hidden>
+        <dl>
+          <dt>Bot</dt><dd id="tg-bot"></dd>
+          <dt>Chat</dt><dd id="tg-chat"></dd>
+        </dl>
+        <p class="sub">Send me</p>
+        <div class="tool"><input type="checkbox" id="tg-pref-routines"><div><label for="tg-pref-routines">Routine results</label></div></div>
+        <div class="tool"><input type="checkbox" id="tg-pref-waiting"><div><label for="tg-pref-waiting">Claude is waiting for my OK</label><div class="d">With Yes and No buttons; a press answers it in the Console.</div></div></div>
+        <div class="tool"><input type="checkbox" id="tg-pref-login"><div><label for="tg-pref-login">The login ran out</label></div></div>
+        <div class="tool"><input type="checkbox" id="tg-pref-typeToClaude"><div><label for="tg-pref-typeToClaude">Let me type to Claude from Telegram</label><div class="d">Off: Telegram can answer Claude's questions, run a routine (/run) or stop Claude (/stop), but can't send it new instructions; plain text goes to your automations instead.</div></div></div>
+        <p class="sub">Home Assistant</p>
+        <dl>
+          <dt>Automations</dt><dd><span id="tg-ha-state"></span> <button class="secondary small" id="tg-ha-toggle"></button></dd>
+          <dt>Incoming</dt><dd>Commands other than /status /routines /run /stop arrive as <code>telegram_command</code> events, plain text as <code>telegram_text</code>.</dd>
+        </dl>
+        <p class="note">If the token may have leaked: send <code>/revoke</code> to @BotFather, then Forget this bot and set it up again with the new one. Forget also takes it out of Home Assistant.</p>
+        <div class="row">
+          <button class="secondary danger" id="tg-forget">Forget this bot</button>
+          <button class="secondary" id="tg-send-test">Send a test</button>
+          <button class="primary" id="tg-save">Save</button>
+        </div>
+        <p class="saved" id="tg-saved" role="status" hidden></p>
+      </div>
+      <p class="error" id="tg-sec-error" role="alert" hidden></p>
+    </div>
+
     <div class="card sec" id="sec-remote" role="tabpanel" aria-labelledby="nav-remote" hidden>
       <div class="sec-head"><h1>Remote console</h1><span class="chip" id="remote-chip"></span></div>
       <p class="hint">Lets one other computer drive this Console over ssh, for example a dashboard of your own Claude consoles. Off by default: the port stays closed and nothing listens.</p>
@@ -372,6 +422,59 @@
     </div>
   </section>
 </main>
+<dialog id="tg-dialog" class="wizard" aria-labelledby="tg-title">
+  <div class="sec-head"><h1 id="tg-title">Set up Telegram</h1></div>
+  <div class="steps" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+  <section id="tg-step-1">
+    <p class="stepname">Step 1 of 5 · in Telegram</p>
+    <p class="step-title">Make your bot with @BotFather</p>
+    <p>Telegram only makes bots in its own app, so this step is yours. It takes about a minute.</p>
+    <ol>
+      <li><a class="button primary" id="tg-botfather" href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">Open @BotFather ↗</a></li>
+      <li>Send <code>/newbot</code> <button class="secondary small" id="tg-copy-newbot">Copy</button></li>
+      <li>Give it a name, for example <code>Home helper</code>.</li>
+      <li>Give it a username ending in <code>bot</code>, for example <code>my_home_helper_bot</code>.</li>
+      <li>BotFather answers with a token (a long line with a colon). Copy it and come back here.</li>
+    </ol>
+    <p class="note">Don't send the token to anyone or paste it into a chat, including a chat with Claude. It goes only in the next step.</p>
+  </section>
+  <section id="tg-step-2" hidden>
+    <p class="stepname">Step 2 of 5 · here</p>
+    <p class="step-title">Paste the token</p>
+    <input id="tg-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="123456789:AA…" aria-label="Bot token">
+    <div class="row"><button class="secondary" id="tg-check">Check</button></div>
+    <p class="done" id="tg-found" hidden></p>
+    <p class="note">Checked with Telegram at once. Kept in this app's own folder, never shown again or written to the log. Its commands (/status, /routines, /run, /stop) and description are filled in for you.</p>
+  </section>
+  <section id="tg-step-3" hidden>
+    <p class="stepname">Step 3 of 5 · one tap in Telegram</p>
+    <p class="step-title">Connect your chat</p>
+    <p>Open your bot and press <b>Start</b>. The link carries a one-time code, so only your press connects. It works for 10 minutes.</p>
+    <div class="row left"><a class="button primary" id="tg-open-bot" target="_blank" rel="noopener noreferrer">Open your bot ↗</a></div>
+    <p class="note">On a computer and Telegram is on your phone? Open this link there: <code id="tg-link"></code></p>
+    <p class="done" id="tg-connected" hidden></p>
+    <p class="note" id="tg-waiting">Waiting for you to press Start…</p>
+  </section>
+  <section id="tg-step-4" hidden>
+    <p class="stepname">Step 4 of 5</p>
+    <p class="step-title">Test message</p>
+    <p>Sent: "Hello from AI Intervention. This is where I'll tell you about your home." Did it arrive?</p>
+    <div class="row left"><button class="secondary" id="tg-resend">No, send it again</button></div>
+    <p class="note">Still nothing? Check that you pressed Start in the right bot, then go back a step.</p>
+  </section>
+  <section id="tg-step-5" hidden>
+    <p class="stepname">Step 5 of 5 · optional</p>
+    <p class="step-title">Let Home Assistant use this bot</p>
+    <div class="tool"><input type="checkbox" id="tg-ha" checked><div><label for="tg-ha">Automations can send and receive through it</label><div class="d">Adds Home Assistant's own Telegram bot integration, send-only, for your chat. Messages you send the bot that aren't for Claude arrive as telegram_command and telegram_text events. Home Assistant keeps its own copy of the token for this.</div></div></div>
+    <p class="done" id="tg-ha-done" hidden></p>
+  </section>
+  <p class="error" id="tg-error" role="alert" hidden></p>
+  <div class="row">
+    <button class="secondary" id="tg-back">Cancel</button>
+    <button class="secondary" id="tg-skip" hidden>Skip</button>
+    <button class="primary" id="tg-next">Next →</button>
+  </div>
+</dialog>
 <dialog id="confirm" aria-labelledby="confirm-title">
   <h1 id="confirm-title"></h1>
   <div id="confirm-body"></div>

@@ -547,6 +547,137 @@ async function saveTools() {
   await refresh();
 }
 
+// Settings › Telegram: the section, and the five-step set-up pop-up. The user makes the bot
+// in @BotFather; the token goes only into this page; the rest the app does.
+const TG_ERRORS = {
+  'bad-token': 'That is not a bot token. It looks like 123456789:AA… (digits, a colon, then letters). Copy the whole line from BotFather.',
+  'token-refused': 'Telegram did not take that token. Copy it again from BotFather, or send /token there for a fresh one.',
+  'no-network': 'Telegram could not be reached from Home Assistant. Check its internet connection and try again.',
+  'no-chat': 'No chat is connected yet. Go back a step and press Start in your bot.',
+  'no-ha': 'Home Assistant could not be reached. Try again in a minute.',
+  'ha-refused': "Home Assistant did not take the bot. You can add it yourself: Settings › Devices & services › Add integration › Telegram bot (Broadcast).",
+  'ha-already': 'Home Assistant already has this bot. Its notify entity is under Settings › Devices & services › Telegram bot.',
+  'telegram-error': 'Telegram said no. Try again in a minute.',
+  busy: 'Telegram is busy with this bot elsewhere. Try again in a minute.',
+};
+let tgNow = {};
+let tgStep = 1;
+let tgPrefsDirty = false;
+const TG_PREFS = ['routines', 'waiting', 'login', 'typeToClaude'];
+
+function tgError(id, code) {
+  $(id).textContent = code ? TG_ERRORS[code] || MESSAGES[code] || MESSAGES.failed : '';
+  $(id).hidden = !code;
+}
+
+function telegram(t = {}) {
+  tgNow = t;
+  const on = t.step === 'on';
+  $('nav-telegram-s').textContent = on ? 'On' : 'Off';
+  $('tg-chip').textContent = on ? 'On' : 'Off';
+  $('tg-chip').className = `chip${on ? ' ok' : ' off'}`;
+  $('tg-off').hidden = on;
+  $('tg-on').hidden = !on;
+  if (on) {
+    $('tg-bot').textContent = `${t.bot.name} (@${t.bot.username})`;
+    $('tg-chat').textContent = t.chat?.name || '';
+    if (!tgPrefsDirty) for (const k of TG_PREFS) $(`tg-pref-${k}`).checked = Boolean(t.prefs?.[k]);
+    $('tg-ha-state').textContent = t.ha?.on ? `On${t.ha.entity ? ` · send with ${t.ha.entity}` : ''}` : 'Off';
+    $('tg-ha-toggle').textContent = t.ha?.on ? 'Turn off' : 'Turn on';
+  }
+  // Step 3 waits for the chat, which the bot picks up from the Start press.
+  if ($('tg-dialog').open && tgStep === 3) {
+    const got = Boolean(t.chat);
+    $('tg-connected').textContent = got ? `✓ Connected to ${t.chat.name}'s chat. Only this chat will be answered.` : '';
+    $('tg-connected').hidden = !got;
+    $('tg-waiting').hidden = got;
+    $('tg-next').disabled = !got;
+  }
+}
+
+function showStep(n) {
+  tgStep = n;
+  for (let i = 1; i <= 5; i++) $(`tg-step-${i}`).hidden = i !== n;
+  [...document.querySelectorAll('#tg-dialog .steps span')].forEach((s, i) => {
+    s.className = i + 1 < n ? 'done' : i + 1 === n ? 'now' : '';
+  });
+  tgError('tg-error', null);
+  $('tg-back').textContent = n === 1 ? 'Cancel' : 'Back';
+  $('tg-skip').hidden = n !== 5;
+  $('tg-next').textContent = n === 4 ? 'Yes, next →' : n === 5 ? 'Finish' : 'Next →';
+  $('tg-next').disabled = (n === 2 && !tgNow.bot) || (n === 3 && !tgNow.chat);
+}
+
+async function enterStep(n) {
+  showStep(n);
+  if (n === 3 && !tgNow.chat) {
+    const r = await post('api/telegram/pair');
+    if (!r.link) return tgError('tg-error', r.error);
+    $('tg-open-bot').href = r.link;
+    $('tg-link').textContent = r.link;
+    $('tg-open-bot').textContent = `Open @${tgNow.bot?.username || 'your bot'} ↗`;
+    telegram(tgNow);
+  }
+  if (n === 4) {
+    const r = await post('api/telegram/test');
+    if (!r.sent) tgError('tg-error', r.error);
+  }
+}
+
+async function tgCheck() {
+  tgError('tg-error', null);
+  $('tg-found').hidden = true;
+  $('tg-check').disabled = true;
+  const r = await post('api/telegram/token', { token: $('tg-token').value });
+  $('tg-check').disabled = false;
+  if (!r.bot) return tgError('tg-error', r.error);
+  $('tg-token').value = '';
+  $('tg-found').textContent = `✓ Found your bot: ${r.bot.name} (@${r.bot.username})`;
+  $('tg-found').hidden = false;
+  await refresh();
+  $('tg-next').disabled = false;
+}
+
+async function tgFinish(withHa) {
+  if (withHa) {
+    $('tg-next').disabled = true;
+    const r = await post('api/telegram/ha', { on: true });
+    $('tg-next').disabled = false;
+    if (!r.on) return tgError('tg-error', r.error);
+  }
+  $('tg-dialog').close();
+  await refresh();
+}
+
+function openSetup() {
+  tgError('tg-sec-error', null);
+  $('tg-token').value = '';
+  $('tg-found').hidden = true;
+  $('tg-ha-done').hidden = true;
+  $('tg-dialog').showModal();
+  enterStep(1);
+}
+
+async function tgSave() {
+  const prefs = Object.fromEntries(TG_PREFS.map((k) => [k, $(`tg-pref-${k}`).checked]));
+  const r = await post('api/telegram/prefs', prefs);
+  if (!r.saved) return tgError('tg-sec-error', r.error);
+  tgPrefsDirty = false;
+  $('tg-saved').textContent = 'Saved.';
+  $('tg-saved').hidden = false;
+  await refresh();
+}
+
+async function tgForget() {
+  const yes = await confirmStep('Forget this bot?', [
+    para('The app stops using the bot and deletes its token here, and takes it out of Home Assistant. The bot itself stays in your Telegram until you delete it with @BotFather (/deletebot).'),
+  ], 'Forget this bot');
+  if (!yes) return;
+  const r = await post('api/telegram/forget');
+  if (!r.saved) return tgError('tg-sec-error', r.error);
+  await refresh();
+}
+
 // The Settings menu: one section at a time.
 function selectSection(name) {
   for (const b of document.querySelectorAll('.nav button')) {
@@ -661,6 +792,7 @@ async function refresh() {
     remote(s.remote);
     routines(s.routines);
     tools(s.tools);
+    telegram(s.telegram);
     usage(s.usage, s.signedIn);
     if (!$('v-code').hidden || !$('v-done').hidden) {
       chip(s.signedIn);
@@ -906,6 +1038,46 @@ for (const b of document.querySelectorAll('[data-starter]')) {
   b.addEventListener('click', () => toConsole({ kind: 'starter', starter: b.dataset.starter }));
 }
 $('save-tools').addEventListener('click', saveTools);
+$('tg-setup').addEventListener('click', openSetup);
+$('tg-check').addEventListener('click', tgCheck);
+$('tg-token').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') tgCheck();
+});
+$('tg-next').addEventListener('click', () => (tgStep < 5 ? enterStep(tgStep + 1) : tgFinish($('tg-ha').checked)));
+$('tg-back').addEventListener('click', () => (tgStep === 1 ? $('tg-dialog').close() : showStep(tgStep - 1)));
+$('tg-skip').addEventListener('click', () => tgFinish(false));
+$('tg-resend').addEventListener('click', () => enterStep(4));
+$('tg-copy-newbot').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText('/newbot');
+    $('tg-copy-newbot').textContent = 'Copied';
+  } catch {
+    $('tg-copy-newbot').textContent = 'Type /newbot';
+  }
+});
+$('tg-dialog').addEventListener('close', () => refresh());
+for (const k of TG_PREFS) {
+  $(`tg-pref-${k}`).addEventListener('input', () => {
+    tgPrefsDirty = true;
+    $('tg-saved').hidden = true;
+  });
+}
+$('tg-save').addEventListener('click', tgSave);
+$('tg-forget').addEventListener('click', tgForget);
+$('tg-send-test').addEventListener('click', async () => {
+  const r = await post('api/telegram/test');
+  if (!r.sent) return tgError('tg-sec-error', r.error);
+  $('tg-saved').textContent = 'Test sent.';
+  $('tg-saved').hidden = false;
+});
+$('tg-ha-toggle').addEventListener('click', async () => {
+  tgError('tg-sec-error', null);
+  $('tg-ha-toggle').disabled = true;
+  const r = await post('api/telegram/ha', { on: !tgNow.ha?.on });
+  $('tg-ha-toggle').disabled = false;
+  if (r.on === undefined) return tgError('tg-sec-error', r.error);
+  await refresh();
+});
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refresh();
 });

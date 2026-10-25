@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2 — 2026-10-25
+
+- **Telegram** (Settings › Telegram): your own bot, set up in five steps from **Set up…**.
+  You make the bot in @BotFather and paste its token on the page; the app checks it, fills
+  in its commands, connects your chat by a one-time Start link, sends a test, and can add
+  it to Home Assistant (send-only) so automations use it too.
+- It sends routine results, Claude waiting for your OK (Yes / No buttons answer it), and a
+  login that ran out. `/status`, `/routines`, `/run`, `/stop`; any other command or text
+  reaches your automations as `telegram_command` / `telegram_text` events.
+- Routine results on a schedule or from Run now go to Telegram when that is switched on.
+
 ## 0.4.1 — 2026-10-25
 
 - **Routines** (Settings › Routines): named jobs Claude does by hand or on a schedule. Ask

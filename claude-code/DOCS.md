@@ -16,7 +16,7 @@ You need Home Assistant OS or Supervised (anything with Apps), on a 64-bit Intel
 ## The Settings tab
 
 A menu on the left (a row of buttons on a phone) opens one section at a time: **Seat**,
-**Console look**, **Routines**, **Tools** and **Remote console**, each with its state
+**Console look**, **Routines**, **Tools**, **Telegram** and **Remote console**, each with its state
 beside it. A section's buttons sit at its bottom right, the main one (Save, Turn on, Run
 now) furthest right.
 
@@ -59,6 +59,46 @@ conversation is kept.
 
 Both are kept in Claude Code's own settings file (`/data/claude/settings.json`); every
 other setting in it stays as it is.
+
+## Telegram (Settings › Telegram)
+
+Your own Telegram bot that messages you, and that your Home Assistant automations can use.
+**Set up…** opens five steps:
+
+1. **Make the bot** in Telegram: open @BotFather, send `/newbot`, give it a name and a
+   username ending in `bot`. Telegram makes bots only there, so this step is yours.
+2. **Paste the token** BotFather gives you into the page (never into a chat, including one
+   with Claude). The app checks it with Telegram at once and fills in the bot's commands and
+   description. It is kept in the app's own folder (`/data/telegram.json`, readable by the
+   app only), never shown again and never logged.
+3. **Connect your chat**: open your bot from the link (or on your phone) and press **Start**.
+   The link carries a one-time code that works for 10 minutes, so only your press connects.
+   From then on the bot answers that one chat and ignores everyone else.
+4. **Test message**: the app sends one; say whether it arrived.
+5. **Home Assistant** (optional, on by default): the app adds Home Assistant's own
+   *Telegram bot* integration for this bot in its send-only (Broadcast) mode, with your
+   chat allowed. Automations then send with `notify.send_message` (the notify entity is
+   shown on the page) or `telegram_bot.send_message`. Home Assistant keeps its own copy of
+   the token for this. If it cannot be added automatically, add it yourself: Settings ›
+   Devices & services › Add integration › Telegram bot, Broadcast.
+
+What it does once set up:
+
+- **Sends you** (each one a switch): routine results; Claude waiting for your OK, with
+  **Yes** and **No** buttons that answer it in the Console (Enter or Esc); a login that ran
+  out.
+- **Commands**: `/status` (is Claude working, waiting or idle), `/routines` (the list and
+  last results), `/run 1` or `/run <name>` (a report-only run; the result comes back),
+  `/stop` (Esc to Claude).
+- **Everything else goes to your automations**: Telegram lets only one program read a
+  bot's messages, and the app keeps that job, so any other command arrives in Home
+  Assistant as a `telegram_command` event (with `command`, `args`, `chat_id`, `user_id`,
+  `from_first`) and plain text as `telegram_text` (with `text`), the same events Home
+  Assistant's own integration fires. With **Let me type to Claude from Telegram** on, plain
+  text is typed into the Console instead.
+- **Forget this bot** stops using it, deletes the token here and takes it out of Home
+  Assistant. If the token may have leaked, send `/revoke` to @BotFather first, then set it
+  up again with the new one.
 
 ## Sign in (the Settings tab)
 
