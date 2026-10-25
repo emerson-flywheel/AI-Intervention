@@ -444,7 +444,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
       contexts.push(context);
       await frame.click('#tab-settings');
       // 0.4.0: Settings has a menu; one section shows at a time, the Seat first.
-      assert.deepEqual(await frame.$$eval('.nav button', (bs) => bs.map((b) => b.dataset.sec)), ['seat', 'look', 'remote']);
+      assert.deepEqual(await frame.$$eval('.nav button', (bs) => bs.map((b) => b.dataset.sec)), ['seat', 'look', 'routines', 'tools', 'remote']);
       assert.equal(await frame.isVisible('#sec-seat'), true);
       assert.equal(await frame.isVisible('#sec-look'), false);
       await frame.click('#nav-look');
@@ -554,6 +554,86 @@ describe('Seat sign-in in a browser', { skip }, () => {
       rmSync(join(sb.data, 'remote.json'), { force: true });
       rmSync(keyDir, { recursive: true, force: true });
       writeFileSync(options, '{}');
+    }
+  });
+
+  test('Settings › Routines and Tools: the list with its last result, schedule, Run in Console, starters; the tool switches', async () => {
+    const dir = join(sb.data, 'routines');
+    const contexts = [];
+    try {
+      mkdirSync(join(dir, '.results'), { recursive: true });
+      writeFileSync(join(dir, 'morning-health-check.md'),
+        '---\nname: Morning health check\ndescription: Reads repairs and low batteries, and writes a short report.\nschedule: daily 07:00\n---\nLook around and report.\n');
+      writeFileSync(join(dir, '.results', 'morning-health-check.json'), JSON.stringify({
+        at: Date.now() - 3600e3, durationMs: 48000, ok: true, summary: '2 things to look at', fixes: 1,
+        report: 'Summary: 2 things to look at\nFixes waiting: 1\n\n- Kitchen motion sensor unavailable for 9 h.',
+      }));
+      const { context, page, frame } = await open();
+      contexts.push(context);
+      await frame.click('#tab-settings');
+      await frame.click('#nav-routines');
+      await frame.waitForSelector('.rt[data-id="morning-health-check"]');
+      assert.equal(await frame.textContent('#nav-routines-s'), '1');
+      const card = '.rt[data-id="morning-health-check"]';
+      assert.equal(await frame.textContent(`${card} .n`), 'Morning health check');
+      assert.match(await frame.textContent(`${card} .last`), /2 things to look at/);
+      assert.match(await frame.textContent(`${card} .last`), /1 fix waiting/);
+      assert.equal(await frame.inputValue(`${card} .rt-kind`), 'daily');
+      assert.equal(await frame.inputValue(`${card} .rt-time`), '07:00');
+      await frame.click(`${card} .rt-report`);
+      await frame.waitForSelector(`${card} pre:text("Kitchen motion sensor")`);
+      // The main button last, at the right.
+      const ids = await frame.$$eval(`${card} .row:last-child button`, (bs) => bs.map((b) => b.className));
+      assert.match(ids.at(-1), /primary/);
+
+      await frame.selectOption(`${card} .rt-kind`, 'weekdays');
+      await frame.fill(`${card} .rt-time`, '06:30');
+      await frame.dispatchEvent(`${card} .rt-time`, 'change');
+      await frame.waitForSelector('text=Saved: Weekdays 6:30 AM');
+      assert.match(readFileSync(join(dir, 'morning-health-check.md'), 'utf8'), /^schedule: weekdays 06:30$/m);
+
+      const typedBefore = sb.herdr().panes['w1:p1'].lines.length;
+      await frame.click(`${card} .rt-apply`);
+      await frame.waitForSelector('#console:not([hidden])');
+      const typed = sb.herdr().panes['w1:p1'].lines.slice(typedBefore).filter((l) => l.startsWith('typed:'));
+      assert.match(typed.join('\n'), /Apply the fixes from the last run of my routine "Morning health check"/);
+
+      const wide = await open({ width: 360, scheme: 'dark' });
+      contexts.push(wide.context);
+      await wide.frame.click('#tab-settings');
+      await wide.frame.click('#nav-routines');
+      await wide.frame.waitForSelector(card);
+      await shot(wide.page, wide.frame, 'settings-routines-360-dark');
+
+      // No routines: the starters, each typed into the Console as a request to make it.
+      rmSync(dir, { recursive: true, force: true });
+      await frame.click('#tab-settings');
+      await frame.waitForSelector('#rt-empty:visible', { timeout: 8000 });
+      assert.equal(await frame.textContent('#nav-routines-s'), 'None');
+      const before2 = sb.herdr().panes['w1:p1'].lines.length;
+      await frame.click('[data-starter="spook"]');
+      await frame.waitForSelector('#console:not([hidden])');
+      assert.match(sb.herdr().panes['w1:p1'].lines.slice(before2).join('\n'), /Make a routine called "Fix Spook's repair items"/);
+
+      // Tools: two switches, saved into Claude Code's settings.
+      await frame.click('#tab-settings');
+      await frame.click('#nav-tools');
+      await frame.waitForSelector('#tool-snapshot', { state: 'attached' });
+      assert.equal(await frame.isChecked('#tool-snapshot'), false);
+      assert.equal(await frame.isChecked('#tool-web'), true);
+      assert.equal(await frame.textContent('#nav-tools-s'), '1 on');
+      await frame.check('#tool-snapshot');
+      await frame.click('#save-tools');
+      await frame.waitForSelector('#tools-saved:visible');
+      const settings = JSON.parse(readFileSync(join(sb.data, 'claude', 'settings.json'), 'utf8'));
+      assert.equal(settings.hooks.PreToolUse.at(-1).hooks[0].command, '/opt/addon-agent/snapshot.sh');
+      await frame.waitForSelector('#nav-tools-s:text("2 on")');
+      await shot(page, frame, 'settings-tools-1280-light');
+    } finally {
+      for (const c of contexts) await c.close().catch(() => {});
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(join(sb.data, 'claude', 'settings.json'), { force: true });
+      rmSync(join(sb.run, 'relaunch'), { force: true });
     }
   });
 

@@ -32,6 +32,17 @@ if [ "$1" = auth ]; then
         echo "OAuth error: Invalid code. Please make sure the full code was copied"
     done
 fi
+# claude -p ... (a routine's run): one JSON result as Claude Code's --output-format json
+# prints it, with $FAKE_RESULT as its text (FAKE_RESULT_ERROR=1: an error result). The args
+# go to $FAKE_ARGS_FILE when set.
+if [ "$1" = -p ]; then
+    [ -n "${FAKE_ARGS_FILE:-}" ] && printf '%s\n' "$*" > "${FAKE_ARGS_FILE}"
+    FAKE_RESULT="${FAKE_RESULT:-Summary: nothing to report}" FAKE_RESULT_ERROR="${FAKE_RESULT_ERROR:-}" node -e '
+      const err = process.env.FAKE_RESULT_ERROR === "1";
+      console.log(JSON.stringify({ type: "result", subtype: err ? "error_during_execution" : "success",
+        is_error: err, result: err ? "" : process.env.FAKE_RESULT }));'
+    exit 0
+fi
 echo "fake-claude args: $*"
 echo "fake-claude oauth-env: ${CLAUDE_CODE_OAUTH_TOKEN:+set}"
 if [ "${FAKE_TRUST:-}" = 1 ]; then

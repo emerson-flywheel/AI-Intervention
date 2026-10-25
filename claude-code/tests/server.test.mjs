@@ -201,7 +201,7 @@ describe('page server', () => {
 
   test('sign-in through the API: link, wrong code, right code; never the token or code back', async () => {
     let s = JSON.parse((await req(srv.port, '/api/state')).body);
-    const { settings, console: look, remote, view, usage, ...rest } = s;
+    const { settings, console: look, remote, view, usage, routines, tools, ...rest } = s;
     assert.deepEqual(rest, { seat: 'home', signedIn: false, lapsed: false, plan: null, since: null, byOption: false, login: 'none' });
     assert.deepEqual(usage, { show: false, why: 'signed-out', reading: null, probing: false, error: null });
     assert.equal(settings.provider, 'anthropic');
@@ -401,5 +401,70 @@ describe('page server', () => {
     rmSync(reset, { force: true });
     writeFileSync(join(sb.data, 'options.json'), '{}');
     rmSync(join(sb.data, 'ssh'), { recursive: true, force: true });
+  });
+
+  test('api/routines/*: listed in the state; schedule, on/off, Run now (report kept), Run and Apply typed into the Console', async () => {
+    const dir = join(sb.data, 'routines');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'morning-health-check.md'),
+      '---\nname: Morning health check\ndescription: A short report.\nschedule: daily 07:00\n---\nLook around and report.\n');
+    let list = JSON.parse((await req(srv.port, '/api/state')).body).routines;
+    assert.deepEqual(list.map((r) => [r.id, r.scheduleLabel, r.enabled]), [['morning-health-check', 'Every day 7:00 AM', true]]);
+
+    for (const p of ['/api/routines/run', '/api/routines/schedule', '/api/routines/enabled', '/api/routines/console', '/api/tools']) {
+      const plain = await req(srv.port, p, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } });
+      assert.equal(plain.status, 403, `${p} needs the page header`);
+    }
+    const bad = await post(srv.port, '/api/routines/schedule', { id: 'morning-health-check', schedule: 'hourly' });
+    assert.deepEqual([bad.status, JSON.parse(bad.body)], [400, { error: 'bad-schedule' }]);
+    const none = await post(srv.port, '/api/routines/enabled', { id: '../etc', enabled: false });
+    assert.deepEqual([none.status, JSON.parse(none.body)], [404, { error: 'no-routine' }]);
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/routines/schedule', { id: 'morning-health-check', schedule: 'sun 09:00' })).body), { saved: true });
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/routines/enabled', { id: 'morning-health-check', enabled: false })).body), { saved: true });
+    list = JSON.parse((await req(srv.port, '/api/state')).body).routines;
+    assert.deepEqual([list[0].scheduleLabel, list[0].enabled], ['Sundays 9:00 AM', false]);
+
+    const run = await post(srv.port, '/api/routines/run', { id: 'morning-health-check' });
+    assert.deepEqual([run.status, JSON.parse(run.body)], [200, { started: true }]);
+    let last = null;
+    for (let i = 0; i < 50 && !last; i++) {
+      await new Promise((ok) => setTimeout(ok, 100));
+      last = JSON.parse((await req(srv.port, '/api/state')).body).routines[0].last;
+    }
+    assert.deepEqual([last.ok, last.summary], [true, 'nothing to report'], 'the fake claude\'s default answer');
+    const full = JSON.parse((await req(srv.port, '/api/routines/result?id=morning-health-check')).body);
+    assert.match(full.result.report, /nothing to report/);
+
+    const before = sb.herdr().panes['w1:p1'].lines.length;
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/routines/console', { id: 'morning-health-check', kind: 'run' })).body), { typed: true });
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/routines/console', { id: 'morning-health-check', kind: 'apply' })).body), { typed: true });
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/routines/console', { kind: 'starter', starter: 'health' })).body), { typed: true });
+    const typed = sb.herdr().panes['w1:p1'].lines.slice(before).filter((l) => l.startsWith('typed:'));
+    assert.equal(typed.length, 3);
+    assert.match(typed[0], /Run my routine "Morning health check" from \/data\/routines\/morning-health-check\.md/);
+    assert.match(typed[1], /Apply the fixes from the last run of my routine "Morning health check"/);
+    assert.match(typed[2], /Make a routine called "Morning health check", every day at 7:00/);
+    const odd = await post(srv.port, '/api/routines/console', { kind: 'starter', starter: 'rm -rf' });
+    assert.deepEqual([odd.status, JSON.parse(odd.body)], [400, { error: 'bad-starter' }]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('api/tools: the switches saved into Claude Code\'s settings; Claude restarts only on a change', async () => {
+    const relaunch = join(sb.run, 'relaunch');
+    rmSync(relaunch, { force: true });
+    let tools = JSON.parse((await req(srv.port, '/api/state')).body).tools;
+    assert.deepEqual(tools.map((t) => [t.id, t.on]), [['snapshot', false], ['web', true]]);
+    const bad = await post(srv.port, '/api/tools', { snapshot: 'yes', web: true });
+    assert.deepEqual([bad.status, JSON.parse(bad.body)], [400, { error: 'bad-tools' }]);
+    const on = await post(srv.port, '/api/tools', { snapshot: true, web: true });
+    assert.deepEqual([on.status, JSON.parse(on.body)], [200, { saved: true, relaunched: 'now' }]);
+    assert.ok(existsSync(relaunch));
+    rmSync(relaunch);
+    tools = JSON.parse((await req(srv.port, '/api/state')).body).tools;
+    assert.equal(tools[0].on, true);
+    assert.deepEqual(JSON.parse((await post(srv.port, '/api/tools', { snapshot: true, web: true })).body), { saved: true, relaunched: 'none' });
+    await post(srv.port, '/api/tools', { snapshot: false, web: true });
+    rmSync(join(sb.data, 'claude', 'settings.json'), { force: true });
+    rmSync(relaunch, { force: true });
   });
 });
