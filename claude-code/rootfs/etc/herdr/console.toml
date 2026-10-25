@@ -24,7 +24,8 @@ sidebar_start_collapsed = true
 sidebar_collapsed_mode = "hidden"
 mobile_width_threshold = 20
 accent = "#38bdf8"
-pane_scrollbars = true
+# No scrollbar column: the wheel or a finger swipe scrolls, and the text gets the width.
+pane_scrollbars = false
 status_indicators = "symbols"
 hide_tab_bar_when_single_tab = true
 

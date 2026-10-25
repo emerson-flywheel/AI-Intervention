@@ -87,7 +87,8 @@ changes; update the app (or sign in from the Console) then.
 - Claude runs in a [herdr](https://github.com/herdrdev/herdr) console. Leaving the page
   detaches; coming back attaches to the same running Claude.
 - **Scrolling back**: the mouse wheel, or on a phone or tablet a finger swipe (down to go
-  back, up to come forward). Tap the Console to type.
+  back, up to come forward). There is no scrollbar, so the text uses the full width.
+  Tap the Console to type.
 - After an app restart Claude resumes the last conversation (`--continue`).
 - When Claude exits you get a shell; leave it (`exit`) and Claude starts again.
 - **Its look** (Settings › Console): a theme and a font size. The themes are herdr's own

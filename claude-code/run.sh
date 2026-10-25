@@ -110,12 +110,16 @@ start_herdr() {
 # --- ttyd: the page's Console tab (a herdr client) ---
 # The look's font size and colours are ttyd client options, read at each start; the page
 # watches ttyd.pid to reload the Console when ttyd starts again for a new look.
+# scrollback=0: herdr keeps the scrollback, so the terminal leaves no room for a
+# scrollbar of its own (an empty strip down the right). disableResizeOverlay: no size box
+# flashes when the page fits the terminal or a phone's keyboard opens.
 TTYD_PID=""
 start_ttyd() {
     local look=()
     mapfile -t look < <(node "${AGENT}/look.mjs" ttyd-args 2>/dev/null || true)
     ttyd --interface 127.0.0.1 --port 7682 --base-path /console --writable \
-        --client-option titleFixed="AI Intervention" ${look[@]+"${look[@]}"} \
+        --client-option titleFixed="AI Intervention" --client-option scrollback=0 \
+        --client-option disableResizeOverlay=true ${look[@]+"${look[@]}"} \
         "${AGENT}/console-attach.sh" &
     TTYD_PID=$!
     printf '%s\n' "${TTYD_PID}" > "${RUN}/ttyd.pid"

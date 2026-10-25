@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.9 — 2026-10-25
+
+- **The Console's text gets the whole width.** No scrollbar down the right (herdr's pane
+  scrollbar is off; the wheel or a swipe scrolls), and no empty strip beside it: the
+  browser terminal no longer keeps room for a scrollbar of its own, and the page fits it
+  again once it has connected. On a phone that is about eight more columns.
+- The size box (e.g. "54x52") no longer flashes over the Console when it is resized, as
+  when a phone's keyboard opens.
+- The remote console's herdr has no scrollbar column either.
+
 ## 0.3.8 — 2026-10-25
 
 - **The Console scrolls with a finger** on a phone or tablet (the Home Assistant app,

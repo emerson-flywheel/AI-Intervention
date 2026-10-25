@@ -419,14 +419,33 @@ async function cancel() {
   await refresh();
 }
 
-// A finger swipe scrolls the Console (touchscroll.mjs), on each load of its frame.
-const frameScroll = () => {
+// On each load of the Console frame: a finger swipe scrolls it (touchscroll.mjs), and the
+// terminal is fitted again after its first output. ttyd fits only when it opens, before
+// its options (renderer, scrollback) change the room, which left an empty strip on the right.
+const frameReady = () => {
+  let win;
   try {
-    touchScroll($('frame').contentWindow);
-  } catch {}
+    win = $('frame').contentWindow;
+    touchScroll(win);
+  } catch {
+    return;
+  }
+  const refit = (tries) => {
+    const term = win.term;
+    if (!term) {
+      if (tries < 100) setTimeout(() => refit(tries + 1), 100);
+      return;
+    }
+    term.fit?.();
+    const once = term.onWriteParsed(() => {
+      once.dispose();
+      term.fit?.();
+    });
+  };
+  refit(0);
 };
-$('frame').addEventListener('load', frameScroll);
-frameScroll();
+$('frame').addEventListener('load', frameReady);
+frameReady();
 $('tab-console').addEventListener('click', () => selectTab('console'));
 $('tab-settings').addEventListener('click', () => {
   selectTab('settings');
