@@ -164,7 +164,8 @@ describe('page server', () => {
     for (const text of [page.body, app]) {
       const urls = [...text.matchAll(/(?:src|href)="([^"]+)"|fetch\('([^']+)'|post\('([^']+)'/g)].map((m) => m[1] || m[2] || m[3]);
       assert.ok(urls.length > 0);
-      for (const u of urls) assert.ok(!/^(\/|https?:)/.test(u), `relative: ${u}`);
+      // The one link out: Telegram's @BotFather, opened in a new tab by the Telegram set-up.
+      for (const u of urls) assert.ok(!/^(\/|https?:)/.test(u) || u === 'https://t.me/BotFather', `relative: ${u}`);
     }
     assert.equal((await req(srv.port, '/linkcheck.mjs')).status, 200);
     assert.equal((await req(srv.port, '/touchscroll.mjs')).status, 200);
@@ -201,7 +202,7 @@ describe('page server', () => {
 
   test('sign-in through the API: link, wrong code, right code; never the token or code back', async () => {
     let s = JSON.parse((await req(srv.port, '/api/state')).body);
-    const { settings, console: look, remote, view, usage, routines, tools, ...rest } = s;
+    const { settings, console: look, remote, view, usage, routines, tools, telegram, ...rest } = s;
     assert.deepEqual(rest, { seat: 'home', signedIn: false, lapsed: false, plan: null, since: null, byOption: false, login: 'none' });
     assert.deepEqual(usage, { show: false, why: 'signed-out', reading: null, probing: false, error: null });
     assert.equal(settings.provider, 'anthropic');
@@ -466,5 +467,44 @@ describe('page server', () => {
     await post(srv.port, '/api/tools', { snapshot: false, web: true });
     rmSync(join(sb.data, 'claude', 'settings.json'), { force: true });
     rmSync(relaunch, { force: true });
+  });
+
+  test('api/telegram/*: the token checked and kept out of the state; pair, switches, forget', async () => {
+    const token = '123456789:AAExampleExampleExampleExample_abcd';
+    const fake = http.createServer((q, s) => {
+      const ok = q.url === `/bot${token}/getMe`
+        ? { ok: true, result: { id: 42, is_bot: true, first_name: 'Home helper', username: 'my_home_helper_bot' } }
+        : { ok: true, result: q.url.endsWith('/getUpdates') ? [] : true };
+      s.end(JSON.stringify(q.url.startsWith(`/bot${token}/`) ? ok : { ok: false }));
+    });
+    const tgPort = await new Promise((r) => fake.listen(0, '127.0.0.1', () => r(fake.address().port)));
+    const tsrv = await startServer(sb, { ADDON_TTYD_PORT: String(ttydPort), ADDON_TELEGRAM_API: `http://127.0.0.1:${tgPort}` });
+    try {
+      for (const p of ['/api/telegram/token', '/api/telegram/pair', '/api/telegram/test', '/api/telegram/prefs', '/api/telegram/ha', '/api/telegram/forget']) {
+        const plain = await req(tsrv.port, p, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } });
+        assert.equal(plain.status, 403, `${p} needs the page header`);
+      }
+      assert.equal(JSON.parse((await req(tsrv.port, '/api/state')).body).telegram.step, 'off');
+      const bad = await post(tsrv.port, '/api/telegram/token', { token: 'nope' });
+      assert.deepEqual([bad.status, JSON.parse(bad.body)], [400, { error: 'bad-token' }]);
+      const ok = await post(tsrv.port, '/api/telegram/token', { token });
+      assert.deepEqual([ok.status, JSON.parse(ok.body)], [200, { bot: { username: 'my_home_helper_bot', name: 'Home helper' } }]);
+      const state = (await req(tsrv.port, '/api/state')).body;
+      assert.equal(JSON.parse(state).telegram.step, 'pair');
+      assert.ok(!state.includes(token.split(':')[1]) && !tsrv.log().includes(token.split(':')[1]), 'never the token');
+      const pair = JSON.parse((await post(tsrv.port, '/api/telegram/pair')).body);
+      assert.match(pair.link, /^https:\/\/t\.me\/my_home_helper_bot\?start=[a-f0-9]{24}$/);
+      const test = await post(tsrv.port, '/api/telegram/test');
+      assert.deepEqual([test.status, JSON.parse(test.body)], [409, { error: 'no-chat' }], 'no chat paired yet');
+      const prefs = await post(tsrv.port, '/api/telegram/prefs', { routines: false, waiting: true, login: true, typeToClaude: false });
+      assert.deepEqual(JSON.parse(prefs.body), { saved: true });
+      assert.equal(JSON.parse((await req(tsrv.port, '/api/state')).body).telegram.prefs.routines, false);
+      assert.deepEqual(JSON.parse((await post(tsrv.port, '/api/telegram/forget')).body), { saved: true });
+      assert.equal(JSON.parse((await req(tsrv.port, '/api/state')).body).telegram.step, 'off');
+    } finally {
+      tsrv.child.kill();
+      fake.close();
+      rmSync(join(sb.data, 'telegram.json'), { force: true });
+    }
   });
 });

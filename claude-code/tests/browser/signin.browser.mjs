@@ -85,6 +85,10 @@ describe('Seat sign-in in a browser', { skip }, () => {
   let haPort;
   let browser;
   let addonPort;
+  // A stand-in Telegram Bot API (0.4.2): getMe for the one good token, and every call kept.
+  const TG_TOKEN = '123456789:AAExampleExampleExampleExample_abcd';
+  const tgCalls = [];
+  let tgApi;
 
   before(async () => {
     sb = sandbox({ herdr: consoleHerdr(), seat: null });
@@ -96,6 +100,23 @@ describe('Seat sign-in in a browser', { skip }, () => {
       s.end('<body style="background:#000;color:#0f0;font:14px monospace">console here (stand-in ttyd)</body>');
     }).listen(ttydPort, '127.0.0.1');
     sb.env.ADDON_TTYD_PORT = String(ttydPort);
+    const tgPort = await freePort();
+    tgApi = http.createServer((q, s) => {
+      let b = '';
+      q.on('data', (c) => (b += c));
+      q.on('end', () => {
+        const method = q.url.split('/').pop();
+        tgCalls.push({ method, params: b ? JSON.parse(b) : {} });
+        if (!q.url.startsWith(`/bot${TG_TOKEN}/`)) {
+          s.statusCode = 401;
+          return s.end('{"ok":false}');
+        }
+        const result = method === 'getMe' ? { id: 42, is_bot: true, first_name: 'Home helper', username: 'my_home_helper_bot' }
+          : method === 'getUpdates' ? [] : true;
+        s.end(JSON.stringify({ ok: true, result }));
+      });
+    }).listen(tgPort, '127.0.0.1');
+    sb.env.ADDON_TELEGRAM_API = `http://127.0.0.1:${tgPort}`;
     addon = await addonServer(sb, {});
     addonPort = addon.port;
     haPort = await freePort();
@@ -110,6 +131,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
     await browser?.close();
     addon?.child.kill();
     ttyd?.close();
+    tgApi?.close();
     ha?.close();
     sb?.cleanup();
   });
@@ -444,7 +466,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
       contexts.push(context);
       await frame.click('#tab-settings');
       // 0.4.0: Settings has a menu; one section shows at a time, the Seat first.
-      assert.deepEqual(await frame.$$eval('.nav button', (bs) => bs.map((b) => b.dataset.sec)), ['seat', 'look', 'routines', 'tools', 'remote']);
+      assert.deepEqual(await frame.$$eval('.nav button', (bs) => bs.map((b) => b.dataset.sec)), ['seat', 'look', 'routines', 'tools', 'telegram', 'remote']);
       assert.equal(await frame.isVisible('#sec-seat'), true);
       assert.equal(await frame.isVisible('#sec-look'), false);
       await frame.click('#nav-look');
@@ -634,6 +656,89 @@ describe('Seat sign-in in a browser', { skip }, () => {
       rmSync(dir, { recursive: true, force: true });
       rmSync(join(sb.data, 'claude', 'settings.json'), { force: true });
       rmSync(join(sb.run, 'relaunch'), { force: true });
+    }
+  });
+
+  test('Settings › Telegram: the set-up pop-up (BotFather, token, Start link, test, Home Assistant), then the switches and Forget', async () => {
+    const contexts = [];
+    const file = join(sb.data, 'telegram.json');
+    try {
+      const { context, page, frame } = await open();
+      contexts.push(context);
+      await frame.click('#tab-settings');
+      await frame.click('#nav-telegram');
+      await frame.waitForSelector('#sec-telegram:visible');
+      assert.equal(await frame.textContent('#nav-telegram-s'), 'Off');
+      await frame.click('#tg-setup');
+      await frame.waitForSelector('#tg-dialog[open]');
+      // Step 1: BotFather in Telegram, opened in a new tab; /newbot to copy.
+      assert.equal(await frame.getAttribute('#tg-botfather', 'href'), 'https://t.me/BotFather');
+      assert.equal(await frame.getAttribute('#tg-botfather', 'target'), '_blank');
+      assert.match(await frame.textContent('#tg-step-1'), /\/newbot/);
+      await shot(page, frame, 'telegram-step1-1280-light');
+      await frame.click('#tg-next');
+      // Step 2: the token, checked on the spot; a bad one says so and goes nowhere.
+      await frame.waitForSelector('#tg-step-2:visible');
+      assert.equal(await frame.getAttribute('#tg-token', 'type'), 'password');
+      const calls = tgCalls.length;
+      await frame.fill('#tg-token', 'not a token');
+      await frame.click('#tg-check');
+      await frame.waitForSelector('#tg-error:visible');
+      assert.equal(tgCalls.length, calls, 'a bad shape never reaches Telegram');
+      await frame.fill('#tg-token', TG_TOKEN);
+      await frame.click('#tg-check');
+      await frame.waitForSelector('text=Found your bot: Home helper (@my_home_helper_bot)');
+      assert.equal(await frame.inputValue('#tg-token'), '', 'the box is emptied once it is kept');
+      await frame.click('#tg-next');
+      // Step 3: the Start link with its one-time code; connected once the bot hears it.
+      await frame.waitForSelector('#tg-step-3:visible');
+      await frame.waitForSelector('#tg-open-bot[href]');
+      const href = await frame.getAttribute('#tg-open-bot', 'href');
+      assert.match(href, /^https:\/\/t\.me\/my_home_helper_bot\?start=[a-f0-9]{24}$/);
+      assert.equal(await frame.isEnabled('#tg-next'), false, 'Next waits for the chat');
+      const saved = JSON.parse(readFileSync(file, 'utf8'));
+      writeFileSync(file, JSON.stringify({ ...saved, chat: { id: 555, name: 'Sam' }, pairing: null }), { mode: 0o600 });
+      await frame.waitForSelector("text=Connected to Sam's chat", { timeout: 8000 });
+      await frame.click('#tg-next');
+      // Step 4: the test message.
+      await frame.waitForSelector('#tg-step-4:visible');
+      const testSent = () => tgCalls.some((c) => c.method === 'sendMessage' && c.params.chat_id === 555);
+      for (let i = 0; i < 30 && !testSent(); i++) await new Promise((r) => setTimeout(r, 100));
+      assert.ok(testSent(), 'the test message went to the paired chat');
+      await frame.click('#tg-next');
+      // Step 5: Home Assistant, on by default; Skip leaves it out.
+      await frame.waitForSelector('#tg-step-5:visible');
+      assert.equal(await frame.isChecked('#tg-ha'), true);
+      await shot(page, frame, 'telegram-step5-1280-light');
+      await frame.click('#tg-skip');
+      await frame.waitForSelector('#tg-dialog:not([open])', { state: 'attached' });
+      await frame.waitForSelector('#tg-on:visible');
+      assert.equal(await frame.textContent('#nav-telegram-s'), 'On');
+      assert.match(await frame.textContent('#tg-bot'), /Home helper \(@my_home_helper_bot\)/);
+
+      // The switches.
+      assert.equal(await frame.isChecked('#tg-pref-typeToClaude'), false);
+      await frame.uncheck('#tg-pref-routines');
+      await frame.click('#tg-save');
+      await frame.waitForSelector('#tg-saved:visible');
+      assert.equal(JSON.parse(readFileSync(file, 'utf8')).prefs.routines, false);
+
+      const wide = await open({ width: 360, scheme: 'dark' });
+      contexts.push(wide.context);
+      await wide.frame.click('#tab-settings');
+      await wide.frame.click('#nav-telegram');
+      await wide.frame.waitForSelector('#tg-on:visible');
+      await shot(wide.page, wide.frame, 'settings-telegram-360-dark');
+
+      await frame.click('#tg-forget');
+      await frame.waitForSelector('#confirm[open]');
+      await frame.click('#confirm-ok');
+      await frame.waitForSelector('#tg-off:visible');
+      assert.throws(() => readFileSync(file), 'the bot is forgotten');
+      assert.ok(!JSON.stringify(tgCalls).includes('"token"'), 'the token never went into a message');
+    } finally {
+      for (const c of contexts) await c.close().catch(() => {});
+      rmSync(file, { force: true });
     }
   });
 
