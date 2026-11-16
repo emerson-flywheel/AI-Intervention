@@ -7,7 +7,8 @@
 #   herdr server, session "claude"  the console: one workspace whose pane runs Claude
 #   ttyd on 127.0.0.1:7682          a herdr client for the page's Console tab
 #   node server.mjs on :7681        the page (ingress): Console + Settings tabs, sign-in
-#   sshd on :22 (host 2248)         only once the remote console is on (Settings, or remote_key)
+#   sshd on :22 (host 2248)         only once the remote console is on (Settings, or remote_key),
+#                                   or a tell key is added (Settings › Telegram › Console messages)
 set -euo pipefail
 
 OPTIONS="/data/options.json"
@@ -159,6 +160,7 @@ prepare_sshd() {
     node "${AGENT}/keyline.mjs" || rc=$?
     case "${rc}" in
         0) ;;
+        4) log "Remote console: off; the port is open for console messages (tell keys) only." ;;
         1) log "Remote console: off (no remote_key, and not turned on in Settings), so its port stays closed."; return 0 ;;
         3) log "Remote console: the key's addresses must name where it may log in from (no names, no /0). Refused; the port stays closed."; return 0 ;;
         *) log "Remote console: the key is not one plain ssh-ed25519 public key line. Refused; the port stays closed."; return 0 ;;

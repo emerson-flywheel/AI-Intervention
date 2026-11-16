@@ -90,6 +90,19 @@ async function call(token, method, params = {}, timeoutMs = 15000) {
 
 const clip = (s, n = TEXT_CAP) => (String(s).length > n ? `${String(s).slice(0, n - 1)}…` : String(s));
 
+// A bot with a paired chat: console messages can go out.
+export function telegramReady() {
+  return Boolean(read()?.chat);
+}
+
+// A console message (tell.mjs): Telegram's message id, so a Reply to it finds its console.
+export async function sendForId(text) {
+  const v = read();
+  if (!v?.chat) throw new TelegramError('no-chat');
+  const r = await call(v.token, 'sendMessage', { chat_id: v.chat.id, text: clip(text) });
+  return r?.message_id ?? null;
+}
+
 export async function send(text, extra = {}) {
   const v = read();
   if (!v?.chat) return false;
@@ -256,6 +269,9 @@ async function handle(u, ctx, now) {
     const head = message.text.trim().split(/\s+/)[0].split('@')[0].toLowerCase();
     return head === '/start' ? undefined : command(v, message, ctx);
   }
+  // A Reply to a console's message (tell.mjs) is kept for that console.
+  const to = message.reply_to_message && ctx.noteReply ? ctx.noteReply(message) : null;
+  if (to) return send(`Passed to ${to}.`);
   if (v.prefs?.typeToClaude) {
     const typed = await ctx.typeIntoConsole(message.text.replace(/[\n\r\t]/g, ' ').slice(0, 2000));
     return send(typed === 'typed' ? 'Typed into the Console.' : `Not typed: ${STATE_WORDS[await ctx.consoleState()] || 'the Console is not ready.'}`);

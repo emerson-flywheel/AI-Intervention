@@ -371,6 +371,27 @@
           <dt>Automations</dt><dd><span id="tg-ha-state"></span> <button class="secondary small" id="tg-ha-toggle"></button></dd>
           <dt>Incoming</dt><dd>Commands other than /status /routines /run /stop arrive as <code>telegram_command</code> events, plain text as <code>telegram_text</code>.</dd>
         </dl>
+        <p class="sub">Console messages</p>
+        <p class="hint">Consoles on another computer can send you a short message here (a job done or stuck, a card waiting for you). Each computer gets a <b>tell key</b>: it can only hand over a message and read your Replies to it, nothing else. At most 5 a minute and 30 an hour per console; between 10 PM and 7 AM they wait until 7.</p>
+        <ul class="tell-keys" id="tg-tell-list"></ul>
+        <div id="tg-tell-form" hidden>
+          <dl>
+            <dt><label for="tg-tell-label">Name</label></dt>
+            <dd><input id="tg-tell-label" maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="workspace">
+              <span class="sm">Lower case, digits and hyphens.</span></dd>
+            <dt><label for="tg-tell-key">Public key</label></dt>
+            <dd><textarea id="tg-tell-key" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="ssh-ed25519 AAAA… name"></textarea>
+              <span class="sm">One ssh-ed25519 public key line from the other computer. Never its private key.</span></dd>
+            <dt><label for="tg-tell-from">Connects from</label></dt>
+            <dd><input id="tg-tell-from" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="192.168.1.20">
+              <span class="sm">Its address, a network such as 192.168.1.0/24, or several, comma-separated. Port 2248.</span></dd>
+          </dl>
+          <div class="row">
+            <button class="secondary" id="tg-tell-cancel">Cancel</button>
+            <button class="primary" id="tg-tell-save">Add</button>
+          </div>
+        </div>
+        <div class="row left" id="tg-tell-addrow"><button class="secondary" id="tg-tell-add">Add a tell key…</button></div>
         <p class="note">If the token may have leaked: send <code>/revoke</code> to @BotFather, then Forget this bot and set it up again with the new one. Forget also takes it out of Home Assistant.</p>
         <div class="row">
           <button class="secondary danger" id="tg-forget">Forget this bot</button>

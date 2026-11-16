@@ -3,13 +3,16 @@
 // The key and its addresses come from the remote_key and remote_allow_from options when
 // remote_key is set, else from Settings › Remote console (/data/remote.json).
 //   exit 0: written; exit 1: no key, or turned off on the page (no sshd); exit 2: not one
-//   plain ssh-ed25519 key; exit 3: the addresses missing or not a plain address list.
+//   plain ssh-ed25519 key; exit 3: the addresses missing or not a plain address list;
+//   exit 4: the remote console is not on, but tell keys are (Settings › Telegram › Console
+//   messages), so sshd runs for them alone. The tell keys' lines are written in every case.
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA, RUN } from './lib.mjs';
+import { tellLines } from './tell.mjs';
 
 // "ssh-ed25519", one space, the 68-character base64 blob of a 32-byte ed25519 key, and
 // at most a plain comment. Nothing that could carry an option, a quote or a second line.
@@ -48,7 +51,7 @@ export function allowFrom(value) {
 }
 
 // The key line trimmed and checked, with its comment, or null.
-function plainKey(key) {
+export function plainKey(key) {
   if (typeof key !== 'string') return null;
   const m = key.trim().match(KEY_RE);
   if (!m) return null;
@@ -197,4 +200,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   mkdirSync(RUN, { recursive: true });
   writeFileSync(join(RUN, 'remote'), `${STATES[process.exitCode ?? 0]}\n`);
+  // The tell keys: send-only, each forced into tell.mjs (console messages).
+  const tells = tellLines();
+  if (tells.length) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    chmodSync(dir, 0o700);
+    writeFileSync(file, `${tells.join('\n')}\n`, { mode: 0o600, flag: 'a' });
+    chmodSync(file, 0o600);
+    if (process.exitCode) process.exitCode = 4;
+  }
 }

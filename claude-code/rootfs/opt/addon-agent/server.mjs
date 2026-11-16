@@ -22,6 +22,7 @@ import { SettingsError, saveSeatSettings, seatSettings } from './settings.mjs';
 import {
   TelegramError, forget, notify, pollOnce, savePrefs, saveToken, sendTest, setHa, startPairing, telegramView, watch,
 } from './telegram.mjs';
+import { TellError, addTellKey, flushHeld, noteReply, removeTellKey, tellView } from './tell.mjs';
 import { ToolsError, customTools, saveCustomTool, saveTools, toolsState } from './tools.mjs';
 import { refreshUsage, usageView } from './usage.mjs';
 
@@ -52,6 +53,8 @@ const telegramCtx = {
     return result;
   }),
   seat: seatLogin,
+  // a Telegram Reply to a console's message is kept for that console
+  noteReply,
 };
 
 // The routines the empty Routines section offers: each is typed into the Console as a
@@ -157,7 +160,7 @@ async function state() {
     routines: listRoutines(),
     tools: toolsState(),
     customTools: customTools(),
-    telegram: telegramView(),
+    telegram: { ...telegramView(), tell: tellView() },
     // The Console client's process (run.sh writes it): the page reloads the Console once it changes.
     view: readRun('ttyd.pid'),
   };
@@ -303,6 +306,15 @@ async function api(req, res, path) {
         return send(res, 200, { saved: true });
       }
       if (path === '/api/telegram/ha') return send(res, 200, await setHa(body?.on === true));
+      // Console messages: the tell keys another computer's consoles send with.
+      if (path === '/api/telegram/tell/add') {
+        addTellKey({ label: body?.label, key: body?.key, from: body?.from });
+        return send(res, 200, { saved: true });
+      }
+      if (path === '/api/telegram/tell/remove') {
+        removeTellKey(body?.label);
+        return send(res, 200, { saved: true });
+      }
       if (path === '/api/telegram/forget') {
         await forget();
         return send(res, 200, { saved: true });
@@ -310,6 +322,7 @@ async function api(req, res, path) {
     }
   } catch (err) {
     if (err instanceof LoginError) return send(res, STATUS[err.code] || 409, { error: err.code });
+    if (err instanceof TellError) return send(res, 400, { error: err.code });
     if (err instanceof TelegramError) {
       return send(res, { 'bad-token': 400, 'bad-prefs': 400, 'token-refused': 400, 'no-network': 502, 'no-ha': 502 }[err.code] || 409, {
         error: err.code,
@@ -388,4 +401,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
   })();
   setInterval(() => watch(telegramCtx).catch(() => {}), 10e3).unref();
+  // Console messages held overnight go out once it is 7:00.
+  setInterval(() => flushHeld().catch(() => {}), 60e3).unref();
 }

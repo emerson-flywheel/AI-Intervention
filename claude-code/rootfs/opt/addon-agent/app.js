@@ -638,6 +638,12 @@ const TG_ERRORS = {
   'no-chat': 'No chat is connected yet. Go back a step and press Start in your bot.',
   'no-ha': 'Home Assistant could not be reached. Try again in a minute.',
   'ha-refused': "Home Assistant did not take the bot. You can add it yourself: Settings › Devices & services › Add integration › Telegram bot (Broadcast).",
+  'bad-label': 'The name: lower case letters, digits and hyphens, up to 40.',
+  'bad-key': 'That is not one ssh-ed25519 public key line. Copy the .pub file\'s one line.',
+  'bad-from': 'Connects from: an address, a network such as 192.168.1.0/24, or several, comma-separated (no names, no /0).',
+  'tell-exists': 'A tell key has that name already.',
+  'tell-full': 'Eight tell keys at most. Remove one first.',
+  'no-tell-key': 'That tell key is gone already.',
   'ha-already': 'Home Assistant already has this bot. Its notify entity is under Settings › Devices & services › Telegram bot.',
   'telegram-error': 'Telegram said no. Try again in a minute.',
   busy: 'Telegram is busy with this bot elsewhere. Try again in a minute.',
@@ -747,6 +753,50 @@ async function tgSave() {
   tgPrefsDirty = false;
   $('tg-saved').textContent = 'Saved.';
   $('tg-saved').hidden = false;
+  await refresh();
+}
+
+// Settings › Telegram › Console messages: the tell keys, by name, with Remove.
+function tellKeys(tell = {}) {
+  const keys = tell.keys || [];
+  const at = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  $('tg-tell-list').replaceChildren(...keys.map((k) => {
+    const li = document.createElement('li');
+    const what = document.createElement('span');
+    what.textContent = `${k.label} · from ${k.from}${k.keyComment ? ` · ${k.keyComment}` : ''} · last message ${k.lastUsed ? new Date(k.lastUsed).toLocaleString(undefined, at) : 'not yet'}`;
+    const rm = document.createElement('button');
+    rm.className = 'secondary small danger';
+    rm.textContent = 'Remove';
+    rm.onclick = async () => {
+      const yes = await confirmStep(`Remove ${k.label}?`, [para('Its consoles can no longer message you. Their messages already sent stay in Telegram.')], 'Remove');
+      if (!yes) return;
+      const r = await post('api/telegram/tell/remove', { label: k.label });
+      if (!r.saved) return tgError('tg-sec-error', r.error);
+      await refresh();
+    };
+    li.append(what, ' ', rm);
+    return li;
+  }));
+  if (tell.held) {
+    const li = document.createElement('li');
+    li.textContent = `${tell.held} waiting for 7 AM.`;
+    $('tg-tell-list').append(li);
+  }
+}
+
+function tellForm(open) {
+  $('tg-tell-form').hidden = !open;
+  $('tg-tell-addrow').hidden = open;
+  if (open) for (const id of ['tg-tell-label', 'tg-tell-key', 'tg-tell-from']) $(id).value = '';
+}
+
+async function tellAdd() {
+  tgError('tg-sec-error', null);
+  const r = await post('api/telegram/tell/add', {
+    label: $('tg-tell-label').value.trim(), key: $('tg-tell-key').value.trim(), from: $('tg-tell-from').value.trim(),
+  });
+  if (!r.saved) return tgError('tg-sec-error', r.error);
+  tellForm(false);
   await refresh();
 }
 
@@ -875,6 +925,7 @@ async function refresh() {
     routines(s.routines);
     tools(s.tools, s.customTools);
     telegram(s.telegram);
+    tellKeys(s.telegram?.tell);
     usage(s.usage, s.signedIn);
     if (!$('v-code').hidden || !$('v-done').hidden) {
       chip(s.signedIn);
@@ -1155,6 +1206,9 @@ for (const k of TG_PREFS) {
 }
 $('tg-save').addEventListener('click', tgSave);
 $('tg-forget').addEventListener('click', tgForget);
+$('tg-tell-add').addEventListener('click', () => tellForm(true));
+$('tg-tell-cancel').addEventListener('click', () => tellForm(false));
+$('tg-tell-save').addEventListener('click', tellAdd);
 $('tg-send-test').addEventListener('click', async () => {
   const r = await post('api/telegram/test');
   if (!r.sent) return tgError('tg-sec-error', r.error);
