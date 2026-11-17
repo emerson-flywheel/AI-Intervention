@@ -170,6 +170,19 @@
   }
   a.button.primary { background: var(--primary); color: var(--on-primary); }
   dialog.wizard { width: min(520px, calc(100vw - 32px)); }
+  /* Settings › Bots */
+  .bot { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .bot + .bot { margin-top: 10px; }
+  .bot .n { font-weight: 500; font-size: 15px; overflow-wrap: anywhere; }
+  .bot .d { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .bot .row { margin-top: 8px; }
+  .keybox {
+    display: block; padding: 10px; margin: 8px 0; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    font: 13px/1.4 ui-monospace, "Roboto Mono", Menlo, Consolas, monospace; overflow-wrap: anywhere; user-select: all;
+  }
+  .bot-log { list-style: none; padding: 0; margin: 6px 0 0; font-size: 13px; max-height: 260px; overflow-y: auto; }
+  .bot-log li { padding: 4px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+  .bot-log .no { color: var(--err); }
   .steps { display: flex; gap: 4px; margin: 4px 0 12px; }
   .steps span { flex: 1; height: 4px; border-radius: 999px; background: var(--line); }
   .steps span.done { background: var(--ok); }
@@ -217,6 +230,7 @@
         <button role="tab" id="nav-routines" data-sec="routines" aria-controls="sec-routines" aria-selected="false">Routines <span class="s" id="nav-routines-s"></span></button>
         <button role="tab" id="nav-tools" data-sec="tools" aria-controls="sec-tools" aria-selected="false">Tools <span class="s" id="nav-tools-s"></span></button>
         <button role="tab" id="nav-telegram" data-sec="telegram" aria-controls="sec-telegram" aria-selected="false">Telegram <span class="s" id="nav-telegram-s"></span></button>
+        <button role="tab" id="nav-bots" data-sec="bots" aria-controls="sec-bots" aria-selected="false">Bots <span class="s" id="nav-bots-s"></span></button>
         <button role="tab" id="nav-remote" data-sec="remote" aria-controls="sec-remote" aria-selected="false">Remote console <span class="s" id="nav-remote-s"></span></button>
       </nav>
       <div class="secs">
@@ -401,6 +415,65 @@
         <p class="saved" id="tg-saved" role="status" hidden></p>
       </div>
       <p class="error" id="tg-sec-error" role="alert" hidden></p>
+    </div>
+
+    <div class="card sec" id="sec-bots" role="tabpanel" aria-labelledby="nav-bots" hidden>
+      <div class="sec-head"><h1>Bots</h1><span class="chip off" id="bots-chip">Closed</span></div>
+      <p class="hint">Other AI agents, such as grokbot, reach Home Assistant through this app with their own key. They never get a Home Assistant token: the app checks each bot's level, then makes the call for it. Nothing listens until you add a bot.</p>
+      <p class="banner" id="bots-blocked" hidden></p>
+      <div id="bot-list"></div>
+      <div id="bot-form" hidden>
+        <dl>
+          <dt><label for="bot-name">Name</label></dt>
+          <dd><input id="bot-name" maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="grokbot">
+            <span class="sm">Lower case, digits and hyphens.</span></dd>
+          <dt><label for="bot-level">Level</label></dt>
+          <dd><select id="bot-level">
+              <option value="admin">Admin</option>
+              <option value="control">Control</option>
+              <option value="read">Read only</option>
+            </select>
+            <span class="sm" id="bot-level-d"></span></dd>
+          <dt class="bot-scope"><label for="bot-areas">Areas</label></dt>
+          <dd class="bot-scope"><input id="bot-areas" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="kitchen, living_room">
+            <span class="sm">Area ids, comma-separated.</span></dd>
+          <dt class="bot-scope"><label for="bot-labels">Labels</label></dt>
+          <dd class="bot-scope"><input id="bot-labels" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="lights">
+            <span class="sm">Label ids, comma-separated. A bot covers the entities in any of its areas or labels.</span></dd>
+        </dl>
+        <div class="row">
+          <button class="secondary" id="bot-cancel">Cancel</button>
+          <button class="primary" id="bot-save">Add</button>
+        </div>
+      </div>
+      <div class="row left" id="bot-addrow"><button class="secondary" id="bot-add">Add bot…</button></div>
+
+      <h2 class="sub">Reaching it from away</h2>
+      <p class="hint">Over your Tailscale network the app is its own device, and serves only the Bots door: never this page, the Console or Home Assistant.</p>
+      <div id="ts-off">
+        <dl>
+          <dt><label for="ts-key">Tailscale key</label></dt>
+          <dd><input id="ts-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="tskey-auth-…">
+            <span class="sm">An auth key from Tailscale's admin page (Settings › Keys). It is kept here, never shown again and never logged.</span></dd>
+        </dl>
+        <div class="row"><button class="primary" id="ts-save">Join</button></div>
+      </div>
+      <div id="ts-on" hidden>
+        <dl>
+          <dt>Device</dt><dd id="ts-name"></dd>
+          <dt>Door address</dt><dd><code id="ts-url"></code></dd>
+          <dt>At home</dt><dd><code id="ts-home"></code></dd>
+        </dl>
+        <div class="tool"><input type="checkbox" id="ts-funnel"><div><label for="ts-funnel">Funnel: a public address for the door</label><div class="d">Only for a bot that can't join your Tailscale network, such as one run by someone else in the cloud. Anyone on the internet can then reach the door, and the bot's key is what keeps them out.</div></div></div>
+        <div class="row"><button class="secondary danger" id="ts-forget">Forget Tailscale</button></div>
+      </div>
+      <p class="note" id="ts-pending" role="status" hidden>Applying… this takes a few seconds.</p>
+
+      <h2 class="sub">Recent calls</h2>
+      <ul class="bot-log" id="bot-log"></ul>
+      <p class="note" id="bot-log-empty">None yet.</p>
+      <p class="saved" id="bots-saved" role="status" hidden></p>
+      <p class="error" id="bots-error" role="alert" hidden></p>
     </div>
 
     <div class="card sec" id="sec-remote" role="tabpanel" aria-labelledby="nav-remote" hidden>

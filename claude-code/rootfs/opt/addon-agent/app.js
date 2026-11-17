@@ -810,6 +810,233 @@ async function tgForget() {
   await refresh();
 }
 
+// Settings › Bots: each bot with its level and what it covers, Pause, New key, Remove; Add
+// bot shows the new key once. Tailscale: the key, Funnel, Forget. The latest calls.
+const BOT_LEVELS = {
+  admin: { label: 'Admin', d: 'Everything Claude in this app can do: every action and service, the Supervisor (apps, backups, updates, restarts), and the config files, with a snapshot before each edit. Treat its key like your own password.' },
+  control: { label: 'Control', d: 'Read and control the devices in the areas or labels you pick. No config files and no Supervisor.' },
+  read: { label: 'Read only', d: 'States, history and logbook of what you pick. It can\'t change anything.' },
+};
+const BOT_ERRORS = {
+  'bad-name': 'A name is lower case letters, digits and hyphens, up to 40.',
+  'bot-exists': 'A bot has that name already.',
+  'bots-full': 'That is as many bots as this app keeps (16). Remove one first.',
+  'bad-level': 'That level is not one this app offers. Reload the page.',
+  'no-scope': 'Control and Read only need at least one area or label.',
+  'bad-scope': 'Areas and labels are their ids (lower case, digits and _), comma-separated.',
+  'no-bot': 'That bot is gone. Reload the page.',
+  'bad-key': 'That is not a Tailscale auth key. It starts with tskey-.',
+};
+let botsNow = {};
+
+function botsMessage(id, text) {
+  for (const x of ['bots-saved', 'bots-error']) $(x).hidden = true;
+  if (!text) return;
+  $(id).textContent = text;
+  $(id).hidden = false;
+}
+const botsError = (code) => botsMessage('bots-error', code ? BOT_ERRORS[code] || MESSAGES.failed : null);
+const splitIds = (v) => v.split(',').map((x) => x.trim()).filter(Boolean);
+
+function showKey(name, key) {
+  const box = el('code', 'keybox', key);
+  const copy = el('button', 'secondary', 'Copy');
+  copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(key);
+      copy.textContent = 'Copied';
+    } catch {}
+  };
+  const d = $('confirm');
+  $('confirm-title').textContent = `${name}'s key`;
+  $('confirm-body').replaceChildren(
+    para('Paste it into the bot now, as its bearer token (Authorization: Bearer …). This is the only time it is shown; if it is lost, press New key.'),
+    box, copy,
+  );
+  $('confirm-ok').textContent = 'Done';
+  $('confirm-cancel').hidden = true;
+  // The key leaves the page as the pop-up closes, however it is closed.
+  const forget = () => {
+    $('confirm-body').replaceChildren();
+    $('confirm-cancel').hidden = false;
+    $('confirm-ok').onclick = null;
+    d.oncancel = null;
+    d.onclose = null;
+  };
+  $('confirm-ok').onclick = () => {
+    forget();
+    d.close();
+  };
+  d.oncancel = forget;
+  d.onclose = forget;
+  d.showModal();
+}
+
+async function botAct(path, body, done) {
+  botsError(null);
+  const r = await post(path, body);
+  if (!r.saved) return botsError(r.error);
+  if (done) done(r);
+  await refresh();
+}
+
+function botCard(b) {
+  const card = el('div', 'bot');
+  const lv = BOT_LEVELS[b.level]?.label || b.level;
+  const scope = [...(b.areas || []).map((a) => `area ${a}`), ...(b.labels || []).map((l) => `label ${l}`)].join(', ');
+  const at = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  card.append(
+    el('div', 'n', `${b.name}${b.paused ? ' (paused)' : ''}`),
+    el('div', 'd', `${lv}${scope ? ` · ${scope}` : ''} · last call ${b.lastUsed ? new Date(b.lastUsed).toLocaleString(undefined, at) : 'not yet'}`),
+  );
+  const row = el('div', 'row');
+  const level = document.createElement('select');
+  for (const [id, l] of Object.entries(BOT_LEVELS)) {
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = l.label;
+    o.selected = id === b.level;
+    level.append(o);
+  }
+  level.setAttribute('aria-label', `${b.name}'s level`);
+  level.style.width = 'auto';
+  // Control and Read only need areas or labels: the card asks for them before saving.
+  const scopeRow = el('div', 'row left');
+  scopeRow.hidden = true;
+  const areas = document.createElement('input');
+  areas.placeholder = 'areas: kitchen, living_room';
+  areas.value = (b.areas || []).join(', ');
+  areas.setAttribute('aria-label', `${b.name}'s areas`);
+  const labels = document.createElement('input');
+  labels.placeholder = 'labels: lights';
+  labels.value = (b.labels || []).join(', ');
+  labels.setAttribute('aria-label', `${b.name}'s labels`);
+  const apply = el('button', 'primary small', 'Save level');
+  const back = el('button', 'secondary small', 'Cancel');
+  back.onclick = () => {
+    scopeRow.hidden = true;
+    level.value = b.level;
+    refresh();
+  };
+  scopeRow.append(areas, labels, back, apply);
+  const saveLevel = () => botAct('api/bots/level', {
+    name: b.name, level: level.value, areas: splitIds(areas.value), labels: splitIds(labels.value),
+  }, () => {
+    scopeRow.hidden = true;
+    botsMessage('bots-saved', `${b.name} is ${BOT_LEVELS[level.value].label} from its next call.`);
+  });
+  apply.onclick = saveLevel;
+  level.onchange = () => {
+    if (level.value === 'admin') return saveLevel();
+    scopeRow.hidden = false;
+    areas.focus();
+  };
+  const pause = el('button', 'secondary', b.paused ? 'Resume' : 'Pause');
+  pause.onclick = () => botAct('api/bots/pause', { name: b.name, paused: !b.paused });
+  const nk = el('button', 'secondary', 'New key');
+  nk.onclick = async () => {
+    const yes = await confirmStep(`A new key for ${b.name}?`, [para('Its old key stops working at once. Paste the new one into the bot.')], 'New key');
+    if (yes) await botAct('api/bots/new-key', { name: b.name }, (r) => showKey(b.name, r.key));
+  };
+  const rm = el('button', 'secondary danger', 'Remove');
+  rm.onclick = async () => {
+    const yes = await confirmStep(`Remove ${b.name}?`, [para('Its key stops working at once. Its calls stay in the log.')], 'Remove');
+    if (yes) await botAct('api/bots/remove', { name: b.name });
+  };
+  row.append(level, rm, nk, pause);
+  card.append(row, scopeRow);
+  return card;
+}
+
+function botForm(open) {
+  $('bot-form').hidden = !open;
+  $('bot-addrow').hidden = open;
+  if (open) {
+    $('bot-name').value = '';
+    $('bot-level').value = 'admin';
+    $('bot-areas').value = '';
+    $('bot-labels').value = '';
+    botLevelNote();
+  }
+}
+
+function botLevelNote() {
+  const v = $('bot-level').value;
+  $('bot-level-d').textContent = BOT_LEVELS[v].d;
+  for (const x of document.querySelectorAll('.bot-scope')) x.hidden = v === 'admin';
+}
+
+async function botAdd() {
+  const name = $('bot-name').value.trim();
+  const level = $('bot-level').value;
+  const body = { name, level, ...(level === 'admin' ? {} : { areas: splitIds($('bot-areas').value), labels: splitIds($('bot-labels').value) }) };
+  await botAct('api/bots/add', body, (r) => {
+    botForm(false);
+    showKey(name, r.key);
+  });
+}
+
+function bots(v = {}) {
+  botsNow = v;
+  const list = v.bots || [];
+  // Not while areas or labels are being typed into a card (the page reads the state every 3 s).
+  const editing = [...$('bot-list').querySelectorAll('.row.left')].some((r) => !r.hidden);
+  if (!editing) $('bot-list').replaceChildren(...list.map(botCard));
+  $('bots-chip').textContent = v.open ? 'Open' : 'Closed';
+  $('bots-chip').classList.toggle('off', !v.open);
+  $('nav-bots-s').textContent = list.length ? `${list.filter((b) => !b.paused).length}/${list.length}` : 'Off';
+  $('bots-blocked').hidden = !v.blockedUntil;
+  if (v.blockedUntil) $('bots-blocked').textContent = `Too many wrong keys: every call is refused until ${new Date(v.blockedUntil).toLocaleTimeString()}.`;
+  const ts = v.tailscale || {};
+  const on = ts.keySet || ts.joined;
+  $('ts-off').hidden = Boolean(on);
+  $('ts-on').hidden = !on;
+  $('ts-pending').hidden = !on || Boolean(ts.name) || Boolean(ts.error);
+  $('ts-name').textContent = ts.error ? `Not joined (${ts.error}). Check the key, then Forget and join again.` : ts.name || 'Joining…';
+  $('ts-url').textContent = ts.name ? `https://${ts.name}/mcp` : '…';
+  $('ts-home').textContent = `http://<Home Assistant's address>:${ts.port || 7690}/mcp`;
+  $('ts-funnel').checked = Boolean(ts.funnel);
+  const at = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' };
+  const log = (v.log || []).slice().reverse();
+  $('bot-log-empty').hidden = log.length > 0;
+  $('bot-log').replaceChildren(...log.map((x) => {
+    const li = document.createElement('li');
+    const ok = x.result === 'allowed';
+    li.append(
+      `${new Date(x.at).toLocaleString(undefined, at)} · ${x.bot || 'unknown key'} · ${x.action}${x.target ? ` ${x.target}` : ''} · `,
+      el('span', ok ? '' : 'no', ok ? 'allowed' : x.result.replace(/^refused:/, 'refused: ')),
+    );
+    return li;
+  }));
+}
+
+async function tsSave() {
+  const key = $('ts-key').value.trim();
+  await botAct('api/bots/tailscale/key', { key }, () => {
+    $('ts-key').value = '';
+  });
+}
+
+async function tsFunnel() {
+  const on = $('ts-funnel').checked;
+  if (on) {
+    const yes = await confirmStep('Turn on Funnel?', [
+      para('The Bots door gets an address anyone on the internet can reach. Only a right key gets in, and wrong keys are slowed and then blocked, but the door is public.'),
+      para('Only this door: never this page, the Console or Home Assistant.'),
+    ], 'Turn on Funnel');
+    if (!yes) {
+      $('ts-funnel').checked = false;
+      return;
+    }
+  }
+  await botAct('api/bots/tailscale/funnel', { on });
+}
+
+async function tsForget() {
+  const yes = await confirmStep('Forget Tailscale?', [para('The app leaves your Tailscale network and deletes its key. The door can then be reached at home only. Remove the device in Tailscale\'s admin page too.')], 'Forget Tailscale');
+  if (yes) await botAct('api/bots/tailscale/forget', {});
+}
+
 // The Settings menu: one section at a time.
 function selectSection(name) {
   for (const b of document.querySelectorAll('.nav button')) {
@@ -926,6 +1153,7 @@ async function refresh() {
     tools(s.tools, s.customTools);
     telegram(s.telegram);
     tellKeys(s.telegram?.tell);
+    bots(s.bots);
     usage(s.usage, s.signedIn);
     if (!$('v-code').hidden || !$('v-done').hidden) {
       chip(s.signedIn);
@@ -1206,6 +1434,13 @@ for (const k of TG_PREFS) {
 }
 $('tg-save').addEventListener('click', tgSave);
 $('tg-forget').addEventListener('click', tgForget);
+$('bot-add').addEventListener('click', () => botForm(true));
+$('bot-cancel').addEventListener('click', () => botForm(false));
+$('bot-save').addEventListener('click', botAdd);
+$('bot-level').addEventListener('input', botLevelNote);
+$('ts-save').addEventListener('click', tsSave);
+$('ts-funnel').addEventListener('change', tsFunnel);
+$('ts-forget').addEventListener('click', tsForget);
 $('tg-tell-add').addEventListener('click', () => tellForm(true));
 $('tg-tell-cancel').addEventListener('click', () => tellForm(false));
 $('tg-tell-save').addEventListener('click', tellAdd);

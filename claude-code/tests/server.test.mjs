@@ -202,7 +202,8 @@ describe('page server', () => {
 
   test('sign-in through the API: link, wrong code, right code; never the token or code back', async () => {
     let s = JSON.parse((await req(srv.port, '/api/state')).body);
-    const { settings, console: look, remote, view, usage, routines, tools, customTools, telegram, ...rest } = s;
+    const { settings, console: look, remote, view, usage, routines, tools, customTools, telegram, bots, ...rest } = s;
+    assert.deepEqual([bots.bots, bots.open, bots.tailscale.keySet, bots.tailscale.funnel], [[], false, false, false]);
     assert.deepEqual(customTools, []);
     assert.deepEqual(rest, { seat: 'home', signedIn: false, lapsed: false, plan: null, since: null, byOption: false, login: 'none' });
     assert.deepEqual(usage, { show: false, why: 'signed-out', reading: null, probing: false, error: null });

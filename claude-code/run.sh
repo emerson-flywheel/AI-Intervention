@@ -9,6 +9,9 @@
 #   node server.mjs on :7681        the page (ingress): Console + Settings tabs, sign-in
 #   sshd on :22 (host 2248)         only once the remote console is on (Settings, or remote_key),
 #                                   or a tell key is added (Settings › Telegram › Console messages)
+#   the Bots door on :7690          inside server.mjs, only while a bot is active (Settings › Bots)
+#   tailscaled (userspace)          only once a Tailscale key is pasted in Settings › Bots; it
+#                                   serves the Bots door alone on the user's tailnet
 set -euo pipefail
 
 OPTIONS="/data/options.json"
@@ -91,7 +94,8 @@ fi
 mkdir -p "${RUN}/guard.d"
 rm -f "${RUN}"/guard.d/* "${RUN}/relaunch" "${RUN}/state" "${RUN}/pane" "${RUN}/workspace" \
     "${RUN}/ttyd-restart" "${RUN}/ttyd.pid" "${RUN}/remote" "${RUN}/loop-pid" "${RUN}/offduty" \
-    "${RUN}/remote-apply" "${RUN}/hostkey-reset"
+    "${RUN}/remote-apply" "${RUN}/hostkey-reset" "${RUN}/tailscale-apply" "${RUN}/tailscale-forget" \
+    "${RUN}/tailscale-status.json"
 {
     printf 'WORKDIR=%q\n' "${WORKDIR}"
     printf 'CLAUDE_CONFIG_DIR=%q\n' "${CLAUDE_CONFIG_DIR}"
@@ -191,10 +195,48 @@ stop_sshd() {
     pkill -x sshd 2>/dev/null || true
 }
 
+# --- tailscaled: the Bots door away from home (Settings › Bots › Tailscale) ---
+# Runs while a Tailscale key is there or the device has joined (its state in
+# /data/tailscale). tailscale.mjs joins and serves the Bots door alone; Funnel only when
+# the page turns it on. The key goes to tailscale as a file, never on a command line.
+TS_PID=""
+TS_DIR="/data/tailscale"
+TS_SOCK="${RUN}/tailscaled.sock"
+ts_wanted() { [ -f "${TS_DIR}/authkey" ] || [ -f "${TS_DIR}/tailscaled.state" ]; }
+ts_apply() {
+    local rc=0
+    node "${AGENT}/tailscale.mjs" apply || rc=$?
+    case "${rc}" in
+        0) log "Tailscale: joined; only the Bots door is served on it." ;;
+        1) ;;
+        *) log "Tailscale: could not join or serve the Bots door (see Settings › Bots)." ;;
+    esac
+}
+start_tailscaled() {
+    mkdir -p "${TS_DIR}"
+    chmod 700 "${TS_DIR}"
+    rm -f "${TS_SOCK}"
+    tailscaled --tun=userspace-networking --statedir="${TS_DIR}" --state="${TS_DIR}/tailscaled.state" \
+        --socket="${TS_SOCK}" --port=0 >"${RUN}/tailscaled.log" 2>&1 &
+    TS_PID=$!
+    for _ in $(seq 1 40); do
+        [ -S "${TS_SOCK}" ] && break
+        sleep 0.25
+    done
+    ts_apply
+}
+stop_tailscaled() {
+    if alive "${TS_PID}"; then
+        kill "${TS_PID}" 2>/dev/null || true
+        wait "${TS_PID}" 2>/dev/null || true
+    fi
+    TS_PID=""
+}
+
 stop_all() {
     log "Stopping."
     herdr --session claude server stop >/dev/null 2>&1 || true
-    for pid in "${TTYD_PID}" "${PAGE_PID}" "${SSHD_PID}" "${HERDR_PID}"; do
+    for pid in "${TTYD_PID}" "${PAGE_PID}" "${SSHD_PID}" "${HERDR_PID}" "${TS_PID}"; do
         if [ -n "${pid}" ]; then kill "${pid}" 2>/dev/null || true; fi
     done
     exit 0
@@ -209,6 +251,7 @@ start_ttyd
 start_page
 prepare_sshd
 [ "${SSHD_WANTED}" = 1 ] && start_sshd
+ts_wanted && start_tailscaled
 
 # Supervise: restart whatever stopped. A herdr server that lost the console workspace
 # (or came back from a restored session) gets it made again; strays are closed.
@@ -258,5 +301,24 @@ while :; do
     if [ "${SSHD_WANTED}" = 1 ] && ! alive "${SSHD_PID}"; then
         log "sshd stopped; starting it again."
         start_sshd
+    fi
+    # Settings › Bots › Tailscale: Forget logs the device out and deletes its state; a new
+    # key or the Funnel switch is applied again. tailscaled is started again if it stopped.
+    if [ -f "${RUN}/tailscale-forget" ]; then
+        rm -f "${RUN}/tailscale-forget"
+        if alive "${TS_PID}"; then node "${AGENT}/tailscale.mjs" forget || true; fi
+        stop_tailscaled
+        rm -rf "${TS_DIR}"
+        log "Tailscale: forgotten on the Settings tab; the device is logged out."
+    fi
+    if [ -f "${RUN}/tailscale-apply" ]; then
+        rm -f "${RUN}/tailscale-apply"
+        if ts_wanted; then
+            if alive "${TS_PID}"; then ts_apply; else start_tailscaled; fi
+        fi
+    fi
+    if ts_wanted && ! alive "${TS_PID}"; then
+        log "tailscaled stopped; starting it again."
+        start_tailscaled
     fi
 done

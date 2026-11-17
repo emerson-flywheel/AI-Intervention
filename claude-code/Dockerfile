@@ -28,6 +28,8 @@ ENV LANG=C.UTF-8 \
 #  - git: Claude Code uses it. jq/curl/bash/ncurses: tooling + ttyd.
 #  - tmux: only for the Seat sign-in pane (`tmux -L seat-login`); the console is herdr.
 #  - openssh-server: the remote key (port 2248), off unless remote_key is set.
+#  - tailscale: the Bots door away from home (Settings › Bots › Tailscale), off until a
+#    Tailscale key is pasted there; userspace networking, so no extra privileges.
 RUN apk add --no-cache \
         nodejs \
         npm \
@@ -40,7 +42,9 @@ RUN apk add --no-cache \
         ncurses \
         tmux \
         jq \
-        openssh-server
+        openssh-server \
+        tailscale \
+    && tailscale version >/dev/null && tailscaled --version >/dev/null
 
 # ttyd static binary = the web terminal behind the add-on's page (127.0.0.1:7682)
 RUN set -eu; \

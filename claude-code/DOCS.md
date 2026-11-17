@@ -252,6 +252,51 @@ changes; update the app (or sign in from the Console) then.
 A good first question: "List my unavailable entities and tell me which ones are dead
 hardware."
 
+## Bots (Settings › Bots)
+
+Other AI agents, such as grokbot, reach Home Assistant through this app with their own
+key. A bot never gets a Home Assistant token: it calls the app's **Bots door**, and the
+app checks the bot's level and then makes the call for it. Nothing listens until a bot is
+added, and the door closes again when the last bot is paused or removed.
+
+- **Add bot…** takes a name and a level, and shows the bot's key **once**. Paste it into
+  the bot as its bearer token (`Authorization: Bearer <key>`). The app keeps only a hash.
+  **New key** replaces a key that may have leaked; **Pause** stops a bot at once and keeps
+  it; **Remove** deletes it. A level change takes effect on the bot's next call.
+- **Levels**
+
+  | Level | What the bot can do |
+  |---|---|
+  | **Admin** (default) | Every Home Assistant action and service, the Supervisor API (apps, backups, updates, restarts), and reading and writing files in `/homeassistant`, with a snapshot (Settings › Tools) before each write. Treat its key like your own password. |
+  | **Control** | Read, and call actions on, the entities in the areas or labels you pick: only an action of the entity's own domain, or `homeassistant.turn_on/turn_off/toggle`, named by `entity_id`. No files, no Supervisor. |
+  | **Read only** | States, history and logbook of the entities in the areas or labels you pick. |
+
+- **Out of every level, Admin included**: a shell; this app itself on the Supervisor API
+  (its options hold your sign-in), backup downloads, and the Supervisor's auth; files
+  outside `/homeassistant` (the app's own `/data`: Claude's login, the Telegram token, the
+  Tailscale key, the bots and their keys); and the Bots settings, which only this page
+  changes. Admin can still change anything in Home Assistant itself, its configuration
+  included, so treat an Admin key like your own password.
+- **The door**: `POST /mcp` (MCP over Streamable HTTP, for AI tools such as Grok's remote
+  MCP), or plain web calls: `GET /v1/tools`, `POST /v1/tools/<name>` with the arguments as
+  JSON. Tools: `get_states`, `get_history`, `get_logbook` (every level), `call_service`
+  (Control and Admin), `supervisor`, `read_file`, `write_file` (Admin).
+- **At home** the door is on port 7690 (`http://<Home Assistant's address>:7690/mcp`;
+  change or close it under the app's Network settings).
+- **From away**, over **Tailscale**: paste a Tailscale auth key under *Reaching it from
+  away* and the app joins your Tailscale network as its own device,
+  `ai-intervention-bots`, serving only the door at `https://ai-intervention-bots.<your
+  tailnet>.ts.net/mcp`. Your tailnet needs HTTPS certificates turned on (Tailscale's admin
+  page › DNS). **Funnel** gives that address to the whole internet, for a bot that can't
+  join your network (one run by someone else in the cloud, such as Grok's own servers);
+  it is off unless you turn it on. **Forget Tailscale** logs the device out and deletes
+  the key.
+- **Wrong keys** are answered more slowly each time; after 10 in 10 minutes every call,
+  a right key too, is refused for 15 minutes, and the page says so.
+- **The log**: every call, allowed or refused, is one line in `/data/bots.log` (time, bot,
+  action, target, result; never a key), and the latest show under *Recent calls*. A change
+  a bot makes also shows in Home Assistant's logbook as "<name> (bot)".
+
 ## Remote console (Settings › Remote console; advanced, off by default)
 
 For driving the console from another machine (for example a dashboard of your own
