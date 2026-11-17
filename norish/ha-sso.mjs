@@ -21,7 +21,7 @@
 // better-auth won't attach a new sign-in to one on its own (and it shouldn't). The first
 // time, the person signs in to Norish with their password inside the Recipes panel; the next
 // time they open Recipes, step 2 sees them signed in as the listed email and links their
-// HA sign-in to that account (better-auth's /oauth2/link: their session + this HA proof).
+// HA sign-in to that account (better-auth's /link-social: their session + this HA proof).
 //
 // HOME_PORT carries steps 2-4: nginx :3000 passes it only /ha-sso/start and
 // /ha-sso/authorize; discovery, token, userinfo and keys are reached by Norish on
@@ -39,7 +39,7 @@ const HOME_PORT = Number(process.env.HA_SSO_HOME_PORT || 3003);
 const INGRESS_PORT = Number(process.env.HA_SSO_INGRESS_PORT || 3004);
 export const CLIENT_ID = "norish";
 const ISSUER = `http://127.0.0.1:${HOME_PORT}`;
-const REDIRECT_URI = `${URL_BASE}/api/auth/oauth2/callback/oidc`;
+const REDIRECT_URI = `${URL_BASE}/api/auth/callback/oidc`; // Norish 0.26+
 
 const TICKET_TTL = 60_000;
 const COOKIE_TTL = 120_000;
@@ -214,10 +214,10 @@ function start(req, res, url) {
       linked = Array.isArray(a) && a.some((x) => x.providerId === "oidc");
     } catch (e) {}
     if (linked) { location.replace("/"); return; }
-    return go("/api/auth/oauth2/link", { providerId: "oidc", callbackURL: "/", errorCallbackURL: "/ha-sso/start" });
+    return go("/api/auth/link-social", { provider: "oidc", callbackURL: "/", errorCallbackURL: "/ha-sso/start" });
   }
   if (s && s.user) { try { await fetch("/api/auth/sign-out", { ...opts, method: "POST", body: "{}" }); } catch (e) {} }
-  return go("/api/auth/sign-in/oauth2", { providerId: "oidc", callbackURL: "/", errorCallbackURL: "/ha-sso/start" });
+  return go("/api/auth/sign-in/social", { provider: "oidc", callbackURL: "/", errorCallbackURL: "/ha-sso/start" });
 })();`;
     return page(res, 200, "Norish", `<p>Signing in&hellip;</p><script>${script}</script>`, {
         "Set-Cookie": `ha_sso=${handle}; Path=/ha-sso; HttpOnly; SameSite=Lax; Max-Age=${COOKIE_TTL / 1000}`,

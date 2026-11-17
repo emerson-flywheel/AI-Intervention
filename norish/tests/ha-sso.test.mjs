@@ -1,5 +1,5 @@
 // End-to-end test of ha-sso.mjs against a stand-in Norish built from the same better-auth
-// version and genericOAuth settings Norish v0.25.1-beta uses, behind a stand-in for the
+// version and genericOAuth settings Norish v0.26.1-beta uses (better-auth 1.7.14), behind a stand-in for the
 // add-on's nginx routing (:3000 exact paths, :8099 = ingress).
 // Usage: node ha-sso.test.mjs <path to ha-sso.mjs> <deps dir with better-auth>
 import { spawn } from "node:child_process";
@@ -50,7 +50,14 @@ const auth = betterAuth({
     baseURL: URL_BASE,
     trustedOrigins: [URL_BASE],
     emailAndPassword: { enabled: true },
-    account: { accountLinking: { enabled: true, trustedProviders: ["oidc", "google", "github"] } },
+    account: {
+        accountLinking: {
+            enabled: true,
+            disableImplicitLinking: true, // Norish 0.26
+            trustedProviders: ["oidc", "google", "github"],
+            allowDifferentEmails: true,
+        },
+    },
     databaseHooks: {
         user: {
             create: {
@@ -70,6 +77,7 @@ const auth = betterAuth({
                     clientSecret: SECRET,
                     scopes: ["openid", "profile", "email"],
                     pkce: true,
+                    disableProviderLogout: true,
                     // Norish's getUserInfo: decode the id token, merge userinfo.
                     getUserInfo: async (tokens) => {
                         const idc = tokens.idToken ? decodeJwt(tokens.idToken) : {};
@@ -78,7 +86,7 @@ const auth = betterAuth({
                             await fetch(d.userinfo_endpoint, { headers: { Authorization: `Bearer ${tokens.accessToken}` } })
                         ).json();
                         const p = { ...ui, ...idc };
-                        return { id: p.sub, email: p.email, name: p.name, emailVerified: p.email_verified ?? false };
+                        return { id: p.sub, sub: p.sub, email: p.email, name: p.name, emailVerified: p.email_verified ?? false };
                     },
                 },
             ],
@@ -264,10 +272,10 @@ await gate("G1d signed in as someone else in the panel -> switched to the HA use
 
 await gate("G2 direct address, other device -> HA sign-in refused, no session (red case)", async () => {
     const b = new Browser();
-    const r = await b.fetch("/api/auth/sign-in/oauth2", {
+    const r = await b.fetch("/api/auth/sign-in/social", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ providerId: "oidc", callbackURL: "/" }),
+        body: JSON.stringify({ provider: "oidc", callbackURL: "/" }),
     });
     const { url } = await r.json();
     assert.match(url, /\/ha-sso\/authorize\?/);
@@ -319,7 +327,7 @@ await gate("G7 token endpoint: wrong secret, wrong PKCE verifier, replayed code 
     const challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"; // S256 of the RFC 7636 example verifier
     const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
     const az = await b.fetch(
-        `/ha-sso/authorize?response_type=code&client_id=norish&redirect_uri=${encodeURIComponent(URL_BASE + "/api/auth/oauth2/callback/oidc")}&state=s&code_challenge=${challenge}&code_challenge_method=S256`,
+        `/ha-sso/authorize?response_type=code&client_id=norish&redirect_uri=${encodeURIComponent(URL_BASE + "/api/auth/callback/oidc")}&state=s&code_challenge=${challenge}&code_challenge_method=S256`,
     );
     assert.equal(az.status, 302);
     const code = new URL(az.headers.get("location")).searchParams.get("code");
@@ -329,13 +337,13 @@ await gate("G7 token endpoint: wrong secret, wrong PKCE verifier, replayed code 
             headers: { "content-type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams(body),
         });
-    const base = { grant_type: "authorization_code", code, redirect_uri: URL_BASE + "/api/auth/oauth2/callback/oidc", client_id: "norish" };
+    const base = { grant_type: "authorization_code", code, redirect_uri: URL_BASE + "/api/auth/callback/oidc", client_id: "norish" };
     assert.equal((await tok({ ...base, client_secret: "wrong", code_verifier: verifier })).status, 401);
     assert.equal((await tok({ ...base, client_secret: SECRET, code_verifier: "x".repeat(43) })).status, 400);
     // the bad verifier used the code up; a fresh code with the right verifier works, then replays fail
     const src2 = await haSidebar(b, HA_ALEX);
     await b.fetch(src2);
-    const az2 = await b.fetch(`/ha-sso/authorize?response_type=code&client_id=norish&redirect_uri=${encodeURIComponent(URL_BASE + "/api/auth/oauth2/callback/oidc")}&state=s&code_challenge=${challenge}&code_challenge_method=S256`);
+    const az2 = await b.fetch(`/ha-sso/authorize?response_type=code&client_id=norish&redirect_uri=${encodeURIComponent(URL_BASE + "/api/auth/callback/oidc")}&state=s&code_challenge=${challenge}&code_challenge_method=S256`);
     const code2 = new URL(az2.headers.get("location")).searchParams.get("code");
     const ok = await tok({ ...base, code: code2, client_secret: SECRET, code_verifier: verifier });
     assert.equal(ok.status, 200);

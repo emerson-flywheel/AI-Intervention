@@ -14,7 +14,13 @@
   then opens Recipes again; that links their HA user to their Norish account. Norish's
   password accounts aren't email-verified, so better-auth won't link them on its own.
 - No `ha_users` = no "Home Assistant" button; Recipes shows Norish's own sign-in.
-- `tests/ha-sso.test.mjs`: the sign-in flow against better-auth 1.6.33 (Norish v0.25.1-beta's).
+- `tests/ha-sso.test.mjs`: the sign-in flow against better-auth 1.7.14 with Norish
+  v0.26.1-beta's sign-in settings.
+- **Norish v0.26.1-beta** (was v0.25.1-beta) and Obscura 0.2.5-norish.1. 0.26 fetches a recipe
+  page plainly before using Obscura, so sites that challenge Obscura can still import. It
+  starts with `node --import tsx /app/apps/web/server/index.ts`, and the add-on sets
+  `VALKEY_URL` (Redis is still the server) and `PASSWORD_AUTH_ENABLED=true`. Norish
+  upgrades its database on first start; update with "back up first" ticked.
 
 ## 0.2.0 — 2026-10-21
 

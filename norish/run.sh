@@ -155,13 +155,14 @@ chown -R 1000:1000 /data/uploads
         TRUSTED_ORIGINS="${ORIGINS}" \
         DATABASE_URL="postgres://postgres:${DB_PASSWORD}@127.0.0.1:5432/norish" \
         MASTER_KEY="${MASTER_KEY}" \
-        REDIS_URL="redis://127.0.0.1:6379" \
+        VALKEY_URL="redis://127.0.0.1:6379" \
+        PASSWORD_AUTH_ENABLED="true" \
         OBSCURA_ENDPOINT="ws://127.0.0.1:9222" \
         OBSCURA_CDP_TOKEN="${OBSCURA_TOKEN}" \
         UPLOADS_DIR="/data/uploads" \
         HOST="127.0.0.1" \
         PORT="3001"
-    exec su-exec 1000:1000 node /app/dist-server/index.mjs
+    exec su-exec 1000:1000 node --import tsx /app/apps/web/server/index.ts
 ) &
 PIDS+=($!)
 log "Norish starting for ${URL}."

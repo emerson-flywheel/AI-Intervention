@@ -1,8 +1,8 @@
 # Norish's published image, pinned. To run your own fork later, point this at the fork's
 # image (e.g. ghcr.io/<you>/norish:<tag>) and bump the app version; /data is kept.
-ARG BUILD_FROM=norishapp/norish:v0.25.1-beta
+ARG BUILD_FROM=norishapp/norish:v0.26.1-beta
 # Norish's own build of Obscura, the headless browser behind link imports.
-ARG OBSCURA_IMAGE=norishapp/obscura:0.2.4-norish.1
+ARG OBSCURA_IMAGE=norishapp/obscura:0.2.5-norish.1
 # Cloudflare's tunnel client, for reaching Norish from anywhere (only runs with tunnel_token).
 ARG CLOUDFLARED_VERSION=2026.9.3
 ARG CLOUDFLARED_SHA256=77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2
