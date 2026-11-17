@@ -22,3 +22,4 @@ configuration:
       192.168.1.0/24, comma-separated. Required with a remote key.
 network:
   22/tcp: Remote console (ssh, key only; closed until turned on in Settings)
+  7690/tcp: Bots door (closed until a bot is added in Settings › Bots)

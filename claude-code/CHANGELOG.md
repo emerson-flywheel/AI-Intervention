@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.5 — 2026-11-17
+
+- **Bots** (Settings › Bots): other AI agents, such as grokbot, reach Home Assistant
+  through the app with their own key, never a Home Assistant token. **Add bot…** shows the
+  key once; each bot has a level: *Admin* (the default: every action, the Supervisor and
+  config files, with a snapshot before each edit), *Control* (the entities in the areas or
+  labels you pick) or *Read only*. Pause, New key and Remove take effect on the next call.
+- The **Bots door** speaks MCP (`/mcp`) and plain web calls, and listens only while a bot
+  is active. A shell, this app's own options, backup downloads and the app's private files
+  are out of every level. Wrong keys are slowed, then blocked for 15 minutes.
+- **Tailscale**: paste a Tailscale key and the app joins your tailnet as its own device,
+  serving only the Bots door. **Funnel**, for a bot that can't join, is off unless you turn
+  it on.
+- Every call goes in the app's log (shown on the page), and a bot's changes show in Home
+  Assistant's logbook as done by that bot.
+
 ## 0.4.4 — 2026-11-16
 
 - **Console messages** (Settings › Telegram › Console messages): consoles on another

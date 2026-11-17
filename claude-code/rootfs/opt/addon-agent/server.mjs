@@ -8,6 +8,10 @@ import net from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  BotsError, addBot, botsView, newKey, pauseBot, removeBot, setLevel,
+} from './bots.mjs';
+import { syncDoor } from './door.mjs';
+import {
   APPLY, RESET, RemoteError, hostKeyFingerprint, remoteOff, remoteRemove, remoteStatus, saveRemote,
 } from './keyline.mjs';
 import {
@@ -22,6 +26,9 @@ import { SettingsError, saveSeatSettings, seatSettings } from './settings.mjs';
 import {
   TelegramError, forget, notify, pollOnce, savePrefs, saveToken, sendTest, setHa, startPairing, telegramView, watch,
 } from './telegram.mjs';
+import {
+  TailscaleError, forgetTailscale, saveKey as saveTailscaleKey, setFunnel, tailscaleView,
+} from './tailscale.mjs';
 import { TellError, addTellKey, flushHeld, noteReply, removeTellKey, tellView } from './tell.mjs';
 import { ToolsError, customTools, saveCustomTool, saveTools, toolsState } from './tools.mjs';
 import { refreshUsage, usageView } from './usage.mjs';
@@ -161,6 +168,7 @@ async function state() {
     tools: toolsState(),
     customTools: customTools(),
     telegram: { ...telegramView(), tell: tellView() },
+    bots: { ...botsView(), tailscale: tailscaleView() },
     // The Console client's process (run.sh writes it): the page reloads the Console once it changes.
     view: readRun('ttyd.pid'),
   };
@@ -320,7 +328,29 @@ async function api(req, res, path) {
         return send(res, 200, { saved: true });
       }
     }
+    // Settings › Bots: add a bot (its key comes back once, here), change its level, pause,
+    // a new key, remove; and the Tailscale key and Funnel. The door opens or closes at once.
+    if (path.startsWith('/api/bots/')) {
+      const body = (await readJson(req, 8192)) || {};
+      const act = {
+        '/api/bots/add': () => addBot({ name: body.name, level: body.level || undefined, areas: body.areas, labels: body.labels }),
+        '/api/bots/level': () => setLevel(body.name, { level: body.level, areas: body.areas, labels: body.labels }),
+        '/api/bots/pause': () => pauseBot(body.name, body.paused === true),
+        '/api/bots/new-key': () => newKey(body.name),
+        '/api/bots/remove': () => removeBot(body.name),
+        '/api/bots/tailscale/key': () => saveTailscaleKey(body.key),
+        '/api/bots/tailscale/funnel': () => setFunnel(body.on === true),
+        '/api/bots/tailscale/forget': () => forgetTailscale(),
+      }[path];
+      if (act) {
+        const out = act();
+        await syncDoor();
+        return send(res, 200, { saved: true, ...(out?.key ? { key: out.key } : {}) });
+      }
+    }
   } catch (err) {
+    if (err instanceof BotsError) return send(res, err.code === 'no-bot' ? 404 : 400, { error: err.code });
+    if (err instanceof TailscaleError) return send(res, 400, { error: err.code });
     if (err instanceof LoginError) return send(res, STATUS[err.code] || 409, { error: err.code });
     if (err instanceof TellError) return send(res, 400, { error: err.code });
     if (err instanceof TelegramError) {
@@ -401,6 +431,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
   })();
   setInterval(() => watch(telegramCtx).catch(() => {}), 10e3).unref();
+  // The Bots door listens only while a bot is active: checked now and every 5 s (the page's
+  // changes open or close it at once).
+  syncDoor().then((on) => on && console.log('[claude-code] Bots door open.'));
+  setInterval(() => syncDoor().catch(() => {}), 5e3).unref();
   // Console messages held overnight go out once it is 7:00.
   setInterval(() => flushHeld().catch(() => {}), 60e3).unref();
 }

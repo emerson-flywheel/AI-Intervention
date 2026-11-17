@@ -117,6 +117,8 @@ describe('Seat sign-in in a browser', { skip }, () => {
       });
     }).listen(tgPort, '127.0.0.1');
     sb.env.ADDON_TELEGRAM_API = `http://127.0.0.1:${tgPort}`;
+    // 0.4.5: the Bots door on any free port, so a bot added here never needs 7690.
+    sb.env.ADDON_BOTS_PORT = '0';
     addon = await addonServer(sb, {});
     addonPort = addon.port;
     haPort = await freePort();
@@ -470,7 +472,7 @@ describe('Seat sign-in in a browser', { skip }, () => {
       contexts.push(context);
       await frame.click('#tab-settings');
       // 0.4.0: Settings has a menu; one section shows at a time, the Seat first.
-      assert.deepEqual(await frame.$$eval('.nav button', (bs) => bs.map((b) => b.dataset.sec)), ['seat', 'look', 'routines', 'tools', 'telegram', 'remote']);
+      assert.deepEqual(await frame.$$eval('.nav button', (bs) => bs.map((b) => b.dataset.sec)), ['seat', 'look', 'routines', 'tools', 'telegram', 'bots', 'remote']);
       assert.equal(await frame.isVisible('#sec-seat'), true);
       assert.equal(await frame.isVisible('#sec-look'), false);
       await frame.click('#nav-look');
@@ -811,6 +813,73 @@ describe('Seat sign-in in a browser', { skip }, () => {
     } finally {
       for (const c of contexts) await c.close().catch(() => {});
       rmSync(file, { force: true });
+    }
+  });
+
+  test('Settings › Bots: Add bot shows its key once; level, Pause and Remove; the Tailscale key and Funnel', async () => {
+    const contexts = [];
+    try {
+      for (const width of [1280, 360]) {
+        const { context, page, frame } = await open({ width });
+        contexts.push(context);
+        await frame.click('#tab-settings');
+        await frame.click('#nav-bots');
+        await frame.waitForSelector('#sec-bots:visible');
+        assert.equal(await frame.textContent('#bots-chip'), 'Closed');
+        assert.equal(await frame.textContent('#nav-bots-s'), 'Off');
+        await frame.click('#bot-add');
+        assert.equal(await frame.inputValue('#bot-level'), 'admin', 'Admin is the default');
+        assert.equal(await frame.isVisible('#bot-areas'), false, 'Admin needs no areas');
+        await frame.fill('#bot-name', 'grokbot');
+        await frame.click('#bot-save');
+        await frame.waitForSelector('#confirm[open] .keybox');
+        const key = await frame.textContent('#confirm .keybox');
+        assert.match(key, /^aib_[A-Za-z0-9_-]{40,}$/);
+        await shot(page, frame, `bots-key-${width}-light`);
+        await frame.click('#confirm-ok');
+        await frame.waitForSelector('#confirm', { state: 'hidden' });
+        await frame.waitForSelector('#bot-list .bot');
+        assert.equal((await frame.content()).includes(key), false, 'the key is gone from the page once Done is pressed');
+        assert.match(await frame.textContent('#bot-list'), /grokbot.*Admin/s);
+        await frame.waitForSelector('#bots-chip:text("Open")');
+        // Control needs an area: the card asks for it before saving.
+        await frame.selectOption('#bot-list .bot select', 'control');
+        await frame.waitForSelector('#bot-list .bot input:visible');
+        await frame.fill('#bot-list .bot input >> nth=0', 'kitchen');
+        await frame.click('#bot-list .bot >> text=Save level');
+        await frame.waitForSelector('#bots-saved:visible');
+        await frame.waitForSelector('#bot-list :text("Control · area kitchen")');
+        await frame.click('#bot-list .bot >> text=Pause');
+        await frame.waitForSelector('#bot-list :text("grokbot (paused)")');
+        assert.equal(await frame.textContent('#bots-chip'), 'Closed');
+        // Tailscale: a password field; a bad key is refused; a good one never comes back.
+        assert.equal(await frame.getAttribute('#ts-key', 'type'), 'password');
+        await frame.fill('#ts-key', 'not-a-key');
+        await frame.click('#ts-save');
+        await frame.waitForSelector('#bots-error:visible');
+        const tsKey = 'tskey-auth-kExample000CNTRL-exampleexampleexample';
+        await frame.fill('#ts-key', tsKey);
+        await frame.click('#ts-save');
+        await frame.waitForSelector('#ts-on:visible');
+        assert.equal((await frame.content()).includes(tsKey), false);
+        assert.equal(await frame.isChecked('#ts-funnel'), false, 'Funnel is off unless turned on');
+        await frame.click('#ts-funnel');
+        await frame.waitForSelector('#confirm[open]');
+        await frame.click('#confirm-cancel');
+        assert.equal(await frame.isChecked('#ts-funnel'), false, 'Cancel leaves Funnel off');
+        await shot(page, frame, `bots-${width}-light`);
+        await frame.click('#ts-forget');
+        await frame.click('#confirm-ok');
+        await frame.waitForSelector('#ts-off:visible');
+        await frame.click('#bot-list .bot >> text=Remove');
+        await frame.click('#confirm-ok');
+        await frame.waitForSelector('#bot-list .bot', { state: 'detached' });
+        assert.equal(await frame.textContent('#nav-bots-s'), 'Off');
+        await context.close();
+        contexts.pop();
+      }
+    } finally {
+      for (const c of contexts) await c.close();
     }
   });
 
