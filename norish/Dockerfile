@@ -45,7 +45,7 @@ RUN curl -fsSLo /usr/local/bin/cloudflared \
     && echo "${CLOUDFLARED_SHA256}  /usr/local/bin/cloudflared" | sha256sum -c - \
     && chmod +x /usr/local/bin/cloudflared
 
-COPY run.sh backup.sh nginx.conf github_known_hosts /opt/norish-addon/
+COPY run.sh backup.sh nginx.conf github_known_hosts ha-sso.mjs /opt/norish-addon/
 RUN chmod +x /opt/norish-addon/run.sh /opt/norish-addon/backup.sh
 
 # The image's own entrypoint drops to the app user; run.sh does that per process instead.

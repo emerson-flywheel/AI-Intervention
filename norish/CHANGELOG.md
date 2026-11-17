@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 — 2026-11-17
+
+- **Recipes in the sidebar is now this app's own entry** (ingress panel, `mdi:chef-hat`,
+  open to non-admin users too). It frames Norish from `url`, as the old Recipes dashboard did.
+- **No Norish sign-in when opened from Home Assistant**, for the HA users listed in the new
+  `ha_users` option (HA user name or ID, plus their Norish email). A small sign-in service
+  in the app (`ha-sso.mjs`) is an OIDC provider that Norish trusts. It says yes only to a
+  browser that just came through ingress, where Supervisor has checked the HA sign-in.
+  Norish's sign-in page shows a "Home Assistant" button. Opened by Norish's own address,
+  that button is refused, and the email and password sign-in works as before.
+- The first time, each person signs in to Norish with their password once inside Recipes,
+  then opens Recipes again; that links their HA user to their Norish account. Norish's
+  password accounts aren't email-verified, so better-auth won't link them on its own.
+- No `ha_users` = no "Home Assistant" button; Recipes shows Norish's own sign-in.
+- `tests/ha-sso.test.mjs`: the sign-in flow against better-auth 1.6.33 (Norish v0.25.1-beta's).
+
 ## 0.2.0 — 2026-10-21
 
 - Norish from anywhere: with `tunnel_token` and `public_url` set, a Cloudflare Tunnel

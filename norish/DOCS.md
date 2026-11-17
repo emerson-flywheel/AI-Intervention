@@ -14,9 +14,40 @@ your recipes up to GitHub every night.
 3. Sign up. The first account is the admin, and sign-up closes after it. Add family
    members from Norish → Settings → Admin.
 
-Change the Recipes tab's address in `config/dashboards/recipes.yaml` to match **url**.
-The host names must match: Norish's sign-in cookie is refused inside the Recipes tab when
-Home Assistant and Norish are opened under different host names.
+**Recipes** in the sidebar is this app's own entry (turn on **Show in sidebar** on the
+Info tab). It frames Norish from **url**, so **url** must use the same host name you open
+Home Assistant at: Norish's sign-in cookie is refused inside the frame when the two
+differ. It works at home only; opened through an https address from outside, the
+browser blocks the http frame.
+
+## No sign-in from Home Assistant
+
+List who may skip Norish's sign-in when they open **Recipes** from Home Assistant's
+sidebar, under **ha_users**:
+
+```yaml
+ha_users:
+  - ha_user: alex          # their Home Assistant user name (or user ID)
+    email: alex@example.com # the email of their Norish account
+```
+
+Save and restart. Then each person, once:
+
+1. Opens **Recipes** from the sidebar. The first time it says to sign in once.
+2. Signs in to Norish with their email and password, right there.
+3. Opens **Recipes** again. That links their Home Assistant user to their Norish
+   account, and from then on Recipes opens Norish already signed in.
+
+How it holds: Home Assistant's Supervisor only lets a signed-in HA user through to this
+app's sidebar page, and it tells the app which user that is. The app then gives that
+browser a one-use pass for about a minute, and Norish's "Home Assistant" sign-in accepts
+nothing else. Opened by Norish's own address, from any device, there is no pass: Norish
+asks for its sign-in, and its "Home Assistant" button says to use the sidebar. An HA user
+who isn't listed sees Norish's own sign-in. On the Cloudflare address the button shows
+too, but it has no pass there either, so it is refused the same way.
+
+Remove someone from **ha_users** and restart: they sign in to Norish with their password
+again. Empty **ha_users** turns this off.
 
 ## GitHub backup
 
@@ -63,7 +94,7 @@ address is never online without the email code in front of it:
    **tunnel_token**. Save and restart. The log says `Cloudflare tunnel starting for …`
    and then `Registered tunnel connection`.
 
-At home, keep using **url** and the Recipes tab as before. If the tunnel stops, Norish
+At home, keep using **url** and Recipes in the sidebar as before. If the tunnel stops, Norish
 keeps running at home and the add-on retries the tunnel every minute.
 
 What each sign-in protects: Cloudflare's email code decides who can reach Norish at
@@ -82,6 +113,7 @@ allowed.
 | `backup_time` | When the nightly backup runs (HH:MM, Home Assistant's time zone). |
 | `public_url` | The Cloudflare address Norish is opened at from anywhere. Not set = home only. |
 | `tunnel_token` | The Cloudflare Tunnel token. Not set = no tunnel. |
+| `ha_users` | HA users signed in to Norish without its sign-in when they open Recipes from the sidebar (HA user name or ID, and their Norish email). |
 
 ## What is inside
 
