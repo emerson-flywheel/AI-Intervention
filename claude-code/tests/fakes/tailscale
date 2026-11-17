@@ -1,0 +1,10 @@
+#!/usr/bin/env node
+// A stand-in tailscale CLI: each run's arguments go on one line of FAKE_TAILSCALE_LOG;
+// `status --json` answers as a node that is up, with its tailnet name.
+const { appendFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+appendFileSync(process.env.FAKE_TAILSCALE_LOG, `${JSON.stringify(args)}\n`);
+if (args.includes('status')) {
+  process.stdout.write(JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'ai-intervention-bots.tail1234.ts.net.', Online: true } }));
+}
+if (process.env.FAKE_TAILSCALE_FAIL && args.includes(process.env.FAKE_TAILSCALE_FAIL)) process.exit(1);
