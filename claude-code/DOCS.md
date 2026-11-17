@@ -118,6 +118,27 @@ What it does once set up:
   Assistant. If the token may have leaked, send `/revoke` to @BotFather first, then set it
   up again with the new one.
 
+### Console messages (Settings › Telegram › Console messages)
+
+Consoles on another computer (for example a workspace that does jobs for you) can send you
+a short message from your bot: a job done or stuck, or a card waiting for you.
+
+- **Add a tell key…** takes a name, the other computer's ssh-ed25519 public key and the
+  address it connects from. The port is 2248, the same as the remote console's; it opens
+  for tell keys even while the remote console is off.
+- A tell key can do two things only, as the other computer's ssh command:
+  `send <console>` with the text on stdin, and `replies <console>`. It cannot type into
+  Claude, read the screen, attach or sign in.
+- The message arrives as `🖥 <console>: <text>`, at most 600 characters.
+- Caps: 5 a minute and 30 an hour per console, 60 an hour per key. Over that, the console is
+  told "over the cap". The same text from the same console within 10 minutes is dropped.
+- Between 22:00 and 07:00 (Home Assistant's time) a message waits and goes out at 7:00.
+- **Replies**: use Telegram's Reply on a console's message. The app answers "Passed to
+  <console>." and keeps it for that console for 7 days; the console reads it once with
+  `replies <console>`. Anything else you write works as before.
+- `/data/tell.log` has one line per message: time, key, console, length, result and
+  Telegram's message id. Never the text.
+
 ## Sign in (the Settings tab)
 
 1. Open the **Settings** tab and, in **Seat(s)**, press **Sign in at claude.ai ↗**. A new

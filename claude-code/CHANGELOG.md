@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.4 — 2026-11-16
+
+- **Console messages** (Settings › Telegram › Console messages): consoles on another
+  computer can message you from your bot over a **tell key**, a send-only ssh key that can
+  hand over a short message and read your Replies to it, nothing else. 600 characters, 5 a
+  minute and 30 an hour per console, repeats within 10 minutes dropped, and held from
+  10 PM to 7 AM. A Telegram Reply to a console's message goes back to that console.
+- The port (2248) opens for tell keys even while the remote console is off.
+
 ## 0.4.3 — 2026-10-25
 
 - **Permission levels** (Settings › Seat(s)) replace the permission mode list: *Training
