@@ -9,6 +9,8 @@
 #   nginx        :3000            the port HA and the browser use
 #                127.0.0.1:3002   the tunnel's door (keeps Norish's frame guard)
 #   cloudflared                   Cloudflare Tunnel to :3002, only with tunnel_token (may stop alone)
+#   ha-sso       127.0.0.1:3003   sign-in with Home Assistant for ha_users (OIDC for Norish)
+#                127.0.0.1:3004   the Recipes sidebar page, behind ingress (restarts alone)
 #   backup loop                   once after start, then nightly at backup_time
 set -euo pipefail
 
@@ -23,6 +25,8 @@ URL="$(opt '.url // "http://homeassistant.local:3000"')"
 ORIGINS="$(opt '(.extra_origins // []) + [.public_url // "" | select(. != "")] | join(",")')"
 PUBLIC_URL="$(opt '.public_url // ""')"
 TUNNEL_TOKEN="$(opt '.tunnel_token // ""')"
+HA_USERS="$(opt '[.ha_users // [] | .[] | {ha_user, email}] | tojson')"
+HA_USER_COUNT="$(opt '.ha_users // [] | length')"
 
 # --- Secrets, made once and kept in /data (so in HA backups, never in GitHub) ---
 mkdir -p "${SECRETS}"
@@ -41,6 +45,7 @@ secret() {
 MASTER_KEY="$(secret master_key)"
 DB_PASSWORD="$(secret db_password | tr -dc 'A-Za-z0-9')"
 OBSCURA_TOKEN="$(secret obscura_token)"
+HA_SSO_SECRET="$(secret ha_sso_client_secret | tr -dc 'A-Za-z0-9')"
 
 PIDS=()
 stop_all() {
@@ -55,6 +60,10 @@ stop_all() {
     if [ -n "${TUNNEL_PID:-}" ]; then
         kill "${TUNNEL_PID}" 2>/dev/null || true
         pkill -x cloudflared 2>/dev/null || true
+    fi
+    if [ -n "${SSO_PID:-}" ]; then
+        kill "${SSO_PID}" 2>/dev/null || true
+        pkill -f "${ADDON}/ha-sso.mjs" 2>/dev/null || true
     fi
     su-exec postgres pg_ctl -D "${PGDATA}" -m fast -w stop >/dev/null 2>&1 || true
 }
@@ -108,22 +117,52 @@ OBSCURA_CDP_TOKEN="${OBSCURA_TOKEN}" chroot /opt/obscura \
     log "The link-import browser stopped ($?); recipe links will not import until a restart." &
 OBSCURA_PID=$!
 
+# --- Sign-in with Home Assistant (ha-sso.mjs) ---
+# Always runs: it is the Recipes sidebar page. Only with ha_users set does Norish get it as
+# an OIDC provider ("Home Assistant" on its sign-in page); without, Norish drops that
+# provider on start and the sidebar page shows Norish's own sign-in.
+# Not one of the processes whose exit stops the add-on: Norish's own sign-in still works.
+(
+    while true; do
+        HA_SSO_URL="${URL}" HA_SSO_USERS="${HA_USERS}" HA_SSO_CLIENT_SECRET="${HA_SSO_SECRET}" \
+            su-exec 1000:1000 node "${ADDON}/ha-sso.mjs" ||
+            log "Home Assistant sign-in stopped ($?); restarting in 5 s."
+        sleep 5
+    done
+) &
+SSO_PID=$!
+OIDC_ENV=()
+if [ "${HA_USER_COUNT}" -gt 0 ]; then
+    OIDC_ENV=(
+        OIDC_NAME="Home Assistant"
+        OIDC_ISSUER="http://127.0.0.1:3003"
+        OIDC_WELLKNOWN="http://127.0.0.1:3003/.well-known/openid-configuration"
+        OIDC_CLIENT_ID="norish"
+        OIDC_CLIENT_SECRET="${HA_SSO_SECRET}"
+    )
+    log "Sign-in from the Home Assistant sidebar is on for ${HA_USER_COUNT} user(s)."
+else
+    log "No ha_users: the Recipes sidebar entry shows Norish's own sign-in."
+fi
+
 # --- Norish ---
 mkdir -p /data/uploads
 chown -R 1000:1000 /data/uploads
 (
     cd /app
+    [ "${#OIDC_ENV[@]}" -eq 0 ] || export "${OIDC_ENV[@]}"
     export AUTH_URL="${URL}" \
         TRUSTED_ORIGINS="${ORIGINS}" \
         DATABASE_URL="postgres://postgres:${DB_PASSWORD}@127.0.0.1:5432/norish" \
         MASTER_KEY="${MASTER_KEY}" \
-        REDIS_URL="redis://127.0.0.1:6379" \
+        VALKEY_URL="redis://127.0.0.1:6379" \
+        PASSWORD_AUTH_ENABLED="true" \
         OBSCURA_ENDPOINT="ws://127.0.0.1:9222" \
         OBSCURA_CDP_TOKEN="${OBSCURA_TOKEN}" \
         UPLOADS_DIR="/data/uploads" \
         HOST="127.0.0.1" \
         PORT="3001"
-    exec su-exec 1000:1000 node /app/dist-server/index.mjs
+    exec su-exec 1000:1000 node --import tsx /app/apps/web/server/index.ts
 ) &
 PIDS+=($!)
 log "Norish starting for ${URL}."

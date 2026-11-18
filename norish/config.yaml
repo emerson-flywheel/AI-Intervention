@@ -2,9 +2,9 @@
 # Home Assistant add-on: Norish
 # Norish (https://github.com/norish-recipes/norish), the self-hosted recipe app, with its
 # database, Redis and link-import browser all inside this one add-on. Shown in the HA sidebar
-# by a "Recipes" dashboard with one full-page frame.
+# as "Recipes" (its ingress panel, which frames Norish from port 3000).
 name: "Norish"
-version: "0.2.0"
+version: "0.3.0"
 slug: "norish"
 description: "Your own Norish recipe app: recipes, meal plans and groceries, backed up nightly to GitHub."
 url: "https://github.com/emerson-flywheel/AI-Intervention/tree/main/norish"
@@ -18,17 +18,21 @@ boot: auto
 startup: application
 
 # Norish's pages are served on their own port (not ingress): it is a Next.js app that cannot run under
-# ingress's /api/hassio_ingress/<token>/ prefix. The Recipes dashboard shows this port in an
+# ingress's /api/hassio_ingress/<token>/ prefix. The Recipes sidebar page frames this port in an
 # iframe; nginx in front of Norish drops its X-Frame-Options: DENY so the iframe may load.
 ports:
   3000/tcp: 3000
 ports_description:
   3000/tcp: "Norish web app (the Recipes sidebar tab opens this)"
 webui: "http://[HOST]:[PORT:3000]"
-# Ingress carries Norish's API only (see nginx.conf); the Recipes tab and port 3000 stay
-# the way to open Norish itself.
+# Ingress is the Recipes sidebar entry: it frames Norish from port 3000 and, for the HA
+# users listed in ha_users, signs them in to Norish (ha-sso.mjs). It also carries Norish's
+# API (see nginx.conf).
 ingress: true
 ingress_port: 8099
+panel_title: "Recipes"
+panel_icon: "mdi:chef-hat"
+panel_admin: false
 watchdog: "tcp://[HOST]:[PORT:3000]"
 
 # Postgres lives in /data: a cold backup stops the add-on so the copy is consistent.
@@ -48,12 +52,16 @@ backup: cold
 #   https://host. Not set = home only.
 # tunnel_token: the Cloudflare Tunnel token (Zero Trust → Networks → Tunnels). Set = the
 #   tunnel runs inside this app and carries Norish only, never Home Assistant.
+# ha_users: who is signed in to Norish without a password when they open Recipes from HA's
+#   sidebar: each HA user (user name or user ID) and their Norish account's email. Empty =
+#   everyone sees Norish's own sign-in. Opening Norish by its address always asks.
 # backup_repo, backup_token, public_url and tunnel_token have no default: an empty default
 # fails a pattern and HA refuses to start the app.
 options:
   url: "http://homeassistant.local:3000"
   extra_origins: []
   backup_time: "03:30"
+  ha_users: []
 schema:
   url: "match(^https?://[^/\\s]+$)"
   extra_origins:
@@ -63,3 +71,6 @@ schema:
   backup_time: "match(^([01][0-9]|2[0-3]):[0-5][0-9]$)?"
   public_url: "match(^https://[^/\\s]+$)?"
   tunnel_token: "password?"
+  ha_users:
+    - ha_user: "str"
+      email: "email"
